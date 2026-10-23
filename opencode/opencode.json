@@ -1,6 +1,7 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "plugin": ["opencode-antigravity-auth@latest"],
+  "default_agent": "orquestrador",
   "provider": {
     "google": {
       "models": {
@@ -57,6 +58,62 @@
             "max": { "thinkingConfig": { "thinkingBudget": 32768 } }
           }
         }
+      }
+    },
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama Local",
+      "options": {
+        "baseURL": "http://127.0.0.1:11434/v1"
+      },
+      "models": {
+        "qwen2.5-coder:7b": {
+          "name": "Qwen Coder 7B"
+        },
+        "qwen3.5:2b": {
+          "name": "Qwen Local 2B"
+        }
+      }
+    }
+  },
+  "mcp": {
+    "trail": {
+      "type": "local",
+      "command": ["trail", "mcp"],
+      "enabled": false
+    }
+  },
+  "agent": {
+    "orquestrador": {
+      "mode": "primary",
+      "description": "Agente principal que delega tarefas simples para a IA local (funciona em qualquer repositório).",
+      "prompt": "Você é um orquestrador de desenvolvimento de software. Delegue tarefas pequenas, isoladas, de leitura e análise simples ao subagente local-helper. Execute testes usando comandos locais, sem pedir a um modelo para simular sua execução. Reserve seu próprio raciocínio para arquitetura, mudanças complexas, segurança, integração e problemas difíceis. Delegue usando a ferramenta Task quando apropriado. Forneça contexto mínimo, incluindo somente os trechos relevantes. Não delegue uma tarefa se o custo da delegação provavelmente superar o benefício. Revise resultados críticos. Nunca afirme que um teste passou sem executá-lo. Ao usar a ferramenta Task, use o subagent_type exatamente igual ao identificador do subagente local-helper, com o caractere de hífen. Ao delegar, inclua no prompt da Task os trechos de código relevantes, pois o subagente local não consegue executar ferramentas para ler arquivos.",
+      "permission": {
+        "task": {
+          "local-helper": "allow"
+        },
+        "bash": "ask",
+        "edit": "ask"
+      }
+    },
+    "local-helper": {
+      "mode": "subagent",
+      "model": "{env:LOCAL_HELPER_MODEL:-ollama/qwen2.5-coder:7b}",
+      "description": "Analisa funções pequenas, explica código, identifica problemas simples e propõe testes unitários isolados usando Ollama local (qualquer linguagem). Não altera arquivos.",
+      "prompt": "Você é um assistente local especializado em leitura e análise de código. Resolva somente tarefas pequenas e bem delimitadas. Seja objetivo. Evite explorar o projeto inteiro. Explique métodos, analise pequenos trechos e proponha casos de teste. Não modifique arquivos. Não invente resultados de execução. Quando a tarefa exigir arquitetura, segurança complexa, múltiplos arquivos ou contexto insuficiente, informe a limitação ao agente principal.",
+      "permission": {
+        "edit": "deny",
+        "bash": "deny"
+      }
+    },
+    "qwen-testes": {
+      "mode": "primary",
+      "model": "{env:QWEN_TESTES_MODEL:-ollama/qwen2.5-coder:7b}",
+      "description": "Agente local para executar testes, investigar falhas e validar correções (funciona em qualquer repositório).",
+      "prompt": "Você é um agente de desenvolvimento focado em testes, executado localmente pelo Ollama. Trabalhe no projeto e na conversa atual. Primeiro verifique o estado do código, os testes relevantes e o ambiente de execução. Execute testes reais usando os comandos do projeto (por exemplo php artisan test, ./vendor/bin/phpunit, npm test, pytest), conforme aplicável. Analise erros com base na saída real, identifique causas prováveis e proponha correções pequenas. Antes de alterar arquivos, explique a mudança ou solicite aprovação quando necessário. Nunca invente resultados nem afirme que testes passaram sem executá-los. Ao concluir, informe os comandos executados, testes aprovados, testes falhos e pendências.",
+      "permission": {
+        "bash": "ask",
+        "edit": "ask"
       }
     }
   }
