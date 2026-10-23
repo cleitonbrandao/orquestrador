@@ -18,7 +18,7 @@
 [CmdletBinding()]
 param(
     [switch]$Smoke,
-    [string]$ExpectedModel = "qwen3-16k:latest"
+    [string]$ExpectedModel = "qwen3-12k:latest"
 )
 
 $ErrorActionPreference = "Continue"
@@ -57,7 +57,7 @@ if (-not (Test-Path -LiteralPath $Target)) {
         if ($cfg.default_agent) { Ok "default_agent: $($cfg.default_agent)" } else { Warn2 "default_agent não definido" }
         $names = @()
         if ($cfg.agents) { $names = @($cfg.agents.PSObject.Properties.Name) }
-        foreach ($expected in @("orquestrador", "local-helper", "qwen-testes")) {
+        foreach ($expected in @("orquestrador", "decompositor", "executor", "exec-backend", "exec-dados", "exec-frontend", "local-helper", "qwen-testes")) {
             if ($names -contains $expected) { Ok "agente presente: $expected" } else { Bad "agente ausente: $expected" }
         }
         if ($cfg.agents.orquestrador -and $cfg.agents.orquestrador.model) {
@@ -119,7 +119,8 @@ if ($bins.ContainsKey("opencode")) {
                 if (@($parsed).Count -gt 0) { $agents = $parsed }
             }
         } catch { }
-        if ($agents) { break }
+        # durante o reload a lista pode vir parcial (só os agentes nativos)
+        if ($agents -and (@($agents.id) -contains "qwen-testes")) { break }
         if ($attempt -lt 3) { Start-Sleep -Seconds 2 }
     }
 
@@ -166,8 +167,54 @@ if ($bins.ContainsKey("opencode")) {
         if ($orc) {
             $subAllow = @($orc.permissions | Where-Object { $_.action -eq "subagent" -and $_.effect -eq "allow" })
             Ok ("orquestrador: {0} delegações permitidas" -f $subAllow.Count)
+            foreach ($id in @("decompositor", "executor", "exec-backend", "exec-dados", "exec-frontend")) {
+                if ($subAllow | Where-Object { $_.resource -eq $id }) { Ok "orquestrador: pode delegar ao $id" }
+                else { Bad "orquestrador: delegação ao $id não permitida" }
+            }
+        }
+
+        # Pipeline: decompositor só lê; executor edita mas não roda shell e só aciona o qwen-testes.
+        $dec = $agents | Where-Object { $_.id -eq "decompositor" } | Select-Object -First 1
+        if (-not $dec) { Bad "agente não carregado: decompositor" }
+        else {
+            $p = @($dec.permissions)
+            if ($p | Where-Object { $_.action -eq "edit" -and $_.resource -eq "*" -and $_.effect -eq "deny" }) { Ok "decompositor: edit negado" } else { Bad "decompositor: edit NÃO negado" }
+            if ($p | Where-Object { $_.action -eq "shell" -and $_.resource -eq "*" -and $_.effect -eq "deny" }) { Ok "decompositor: shell negado" } else { Bad "decompositor: shell NÃO negado" }
+        }
+        foreach ($id in @("executor", "exec-backend", "exec-dados", "exec-frontend")) {
+            $exe = $agents | Where-Object { $_.id -eq $id } | Select-Object -First 1
+            if (-not $exe) { Bad "agente não carregado: $id"; continue }
+            $p = @($exe.permissions)
+            if ($p | Where-Object { $_.action -eq "shell" -and $_.resource -eq "*" -and $_.effect -eq "deny" }) { Ok "${id}: shell negado" } else { Bad "${id}: shell NÃO negado" }
+            $lastSub = $p | Where-Object { $_.action -eq "subagent" } | Select-Object -Last 1
+            if ($lastSub -and $lastSub.resource -eq "qwen-testes" -and $lastSub.effect -eq "allow") { Ok "${id}: só delega ao qwen-testes" }
+            else { Bad "${id}: regra de subagente diferente de 'qwen-testes allow' no fim" }
         }
     }
+}
+
+Step "Slots do Ollama (variáveis de usuário)"
+$parallel = [Environment]::GetEnvironmentVariable("OLLAMA_NUM_PARALLEL", "User")
+if ($parallel) {
+    Ok "OLLAMA_NUM_PARALLEL=$parallel"
+    if ([int]$parallel -lt 2) { Warn2 "menos de 2 slots: o pipeline roda uma tarefa por vez" }
+} else {
+    Warn2 "OLLAMA_NUM_PARALLEL não definida (o Ollama decide sozinho; rode .\install.ps1)"
+}
+foreach ($pair in @(@("OLLAMA_FLASH_ATTENTION", "1"), @("OLLAMA_KV_CACHE_TYPE", "q8_0"))) {
+    $v = [Environment]::GetEnvironmentVariable($pair[0], "User")
+    if ($v -eq $pair[1]) { Ok "$($pair[0])=$v" } else { Warn2 "$($pair[0])=$v (esperado $($pair[1]); 2 slots podem não caber na VRAM)" }
+}
+if ($bins.ContainsKey("ollama")) {
+    $ps = (& ollama ps 2>&1 | Out-String)
+    if ($ps -match "CPU") { Warn2 "ollama ps mostra uso de CPU: modelo não coube inteiro na VRAM" }
+}
+
+Step "Claude Code (~/.claude)"
+$ClaudeDir = Join-Path $env:USERPROFILE ".claude"
+foreach ($f in @("agents\decompositor.md", "agents\executor.md", "agents\exec-backend.md", "agents\exec-dados.md", "agents\exec-frontend.md", "agents\testador.md", "skills\orquestrar\SKILL.md")) {
+    $path = Join-Path $ClaudeDir $f
+    if (Test-Path -LiteralPath $path) { Ok "presente: $f" } else { Warn2 "ausente: $path (rode .\install.ps1)" }
 }
 
 if ($Smoke) {

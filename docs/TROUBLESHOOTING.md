@@ -17,21 +17,21 @@ provider Ollama são ignorados nesse caminho.
 **Solução:** criar um modelo derivado com o parâmetro embutido.
 
 ```powershell
-"FROM qwen3:8b`nPARAMETER num_ctx 16384" | Out-File -Encoding ascii "$env:TEMP\Modelfile"
-ollama create qwen3-16k -f "$env:TEMP\Modelfile"
+"FROM qwen3:8b`nPARAMETER num_ctx 12288" | Out-File -Encoding ascii "$env:TEMP\Modelfile"
+ollama create qwen3-12k -f "$env:TEMP\Modelfile"
 ```
 
 ```bash
-printf 'FROM qwen3:8b\nPARAMETER num_ctx 16384\n' > /tmp/Modelfile
-ollama create qwen3-16k -f /tmp/Modelfile
+printf 'FROM qwen3:8b\nPARAMETER num_ctx 12288\n' > /tmp/Modelfile
+ollama create qwen3-12k -f /tmp/Modelfile
 ```
 
 Depois aponte `agents.local-helper.model` e `agents.qwen-testes.model` para
-`ollama/qwen3-16k:latest`.
+`ollama/qwen3-12k:latest`.
 
 **Conferir:**
 ```powershell
-ollama show qwen3-16k --modelfile | Select-String num_ctx   # PARAMETER num_ctx 16384
+ollama show qwen3-12k --modelfile | Select-String num_ctx   # PARAMETER num_ctx 12288
 ```
 
 ---
@@ -82,7 +82,7 @@ modelo (na v2.1.3, caía em um modelo de nuvem).
 
 **Solução:** passar o modelo explicitamente.
 ```powershell
-opencode run --agent qwen-testes --model ollama/qwen3-16k:latest "rode: git --version"
+opencode run --agent qwen-testes --model ollama/qwen3-12k:latest "rode: git --version"
 ```
 
 ---
@@ -118,7 +118,7 @@ executar" e nada acontece.
 **Causa:** o modelo não emite `tool_calls` nativas. `qwen2.5-coder:7b` no Ollama tem esse
 comportamento (retorna `tool_calls: null`).
 
-**Solução:** usar um modelo com suporte a ferramentas — aqui, `qwen3:8b` / `qwen3-16k`.
+**Solução:** usar um modelo com suporte a ferramentas — aqui, `qwen3:8b` / `qwen3-12k`.
 
 **Teste rápido na API do Ollama:**
 ```bash
@@ -176,8 +176,12 @@ afrouxe essa regra: ela evita que um modelo local saia varrendo o disco.
 
 **Causa:** contexto grande demais para a GPU, ou modelo grande demais.
 
+Com 2 slots o KV cache dobra: 2 × 16k = 8,1 GB, que já vaza 10% para a CPU numa GPU de
+8 GB (ver ARQUITETURA, Decisão 11).
+
 **Solução, em ordem:**
-1. Reduzir o contexto do derivado: `PARAMETER num_ctx 8192` (recria o modelo).
+1. Reduzir o contexto do derivado: `.\install.ps1 -Context 8192` cria o `qwen3-8k`
+   (ajuste `agents.<id>.model` no JSON para o novo nome).
 2. Trocar a base: `FROM qwen3:4b` com `num_ctx 8192`.
 3. Fechar aplicações que usam VRAM (navegador, jogos, outros modelos no Ollama).
 
@@ -225,3 +229,86 @@ Copy-Item "$env:USERPROFILE\.config\opencode\opencode.json.bak.20261023-120000" 
 ```
 
 Se você tem providers/agentes próprios, faça merge manual em vez de copiar por cima.
+
+---
+
+## Variáveis `OLLAMA_*` gravadas, mas o Ollama continua com 1 slot
+
+**Sintoma:** `verify.ps1` mostra `OLLAMA_NUM_PARALLEL=2`, mas as tarefas locais rodam uma
+de cada vez. O `server.log` mostra `OLLAMA_NUM_PARALLEL:1`.
+
+**Causa:** o `ollama app.exe` herda o ambiente de quem o iniciou. Reabrir pelo terminal
+antigo (ou por um processo aberto antes da gravação) traz o ambiente velho.
+
+**Diagnóstico:**
+```powershell
+Select-String "$env:LOCALAPPDATA\Ollama\server.log" -Pattern "OLLAMA_NUM_PARALLEL" | Select-Object -Last 1
+```
+
+**Solução:** feche o Ollama na bandeja e abra pelo menu Iniciar (ou faça logoff/logon).
+No Linux, as variáveis vão no serviço (`sudo systemctl edit ollama`) e não no shell.
+
+**Conferir:** com duas requisições ao mesmo tempo, o log mostra `n_slots = 2` e
+`ollama ps` mostra `100% GPU`.
+
+---
+
+## Dois slots vazando para a CPU
+
+**Sintoma:** `ollama ps` mostra `10%/90% CPU/GPU` e os agentes locais ficam ~1/3 mais
+lentos.
+
+**Causa:** contexto por slot grande demais para a VRAM, ou `OLLAMA_KV_CACHE_TYPE=q8_0`
+sem `OLLAMA_FLASH_ATTENTION=1` (a quantização do KV exige flash attention).
+
+**Solução:** usar o `qwen3-12k` (padrão) e conferir as duas variáveis. Medições na
+ARQUITETURA, Decisão 11.
+
+---
+
+## `opencode` resolve para a versão 1.x
+
+**Sintoma:** `opencode --version` mostra `1.1.53`, `opencode debug agents` dá erro, e o
+`verify.ps1`/`verify.sh` não acha os agentes (`JSON inválido` / `saída não contém JSON`).
+
+**Causa:** um OpenCode antigo instalado pelo Chocolatey (`C:\ProgramData\chocolatey\bin`)
+vem antes do npm (`%APPDATA%\npm`, onde está a v2.1.3) no PATH, tanto no PowerShell
+quanto no Git Bash.
+
+**Diagnóstico:**
+```powershell
+Get-Command opencode -All | Select-Object Source, Version
+```
+
+**Solução:** desinstalar o pacote do Chocolatey (`choco uninstall opencode`) ou colocar
+`%APPDATA%\npm` antes dele no PATH. Para uma sessão só:
+```powershell
+$env:Path = "$env:APPDATA\npm;" + $env:Path
+```
+```bash
+export PATH="$(cygpath -u "$APPDATA")/npm:$PATH"   # Git Bash
+```
+
+---
+
+## `debug agents` mostra só parte dos agentes logo depois do restart
+
+**Sintoma:** logo depois de `opencode service restart`, aparecem só os agentes nativos
+(`build`, `plan`, `general`…) e os do config faltam. Segundos depois aparecem todos.
+
+**Causa:** o serviço ainda está recarregando a configuração.
+
+**Solução:** esperar alguns segundos. O `verify.ps1` já tenta 3 vezes até o
+`qwen-testes` aparecer.
+
+---
+
+## Executor não consegue rodar o teste
+
+**Sintoma:** o executor responde `RESULTADO: bloqueado` dizendo que não pode acionar o
+`qwen-testes`.
+
+**Causa:** a regra de subagente do executor precisa terminar com
+`subagent: qwen-testes allow` **depois** de `subagent: * deny` (o último match vence).
+
+**Conferir:** `.\verify.ps1` → `executor: só delega ao qwen-testes`.

@@ -6,13 +6,15 @@
 .DESCRIPTION
     Copia opencode/opencode.json para %USERPROFILE%\.config\opencode\opencode.json,
     com backup do arquivo atual, e garante o modelo derivado do Ollama
-    (qwen3-16k = qwen3:8b + num_ctx 16384).
+    (qwen3-12k = qwen3:8b + num_ctx 12288), os agentes do Claude Code e as variáveis
+    OLLAMA_* que dão 2 slots paralelos.
 
 .PARAMETER BaseModel
     Modelo base do Ollama usado para derivar o modelo dos subagentes. Padrão: qwen3:8b
 
 .PARAMETER Context
-    Valor de num_ctx do modelo derivado. Padrão: 16384
+    Valor de num_ctx do modelo derivado. Padrão: 12288 (2 slots cabem 100% na GPU de 8 GB).
+    O nome do modelo segue o contexto: 12288 -> qwen3-12k, 16384 -> qwen3-16k.
 
 .PARAMETER SkipModel
     Não mexe no Ollama (a config é instalada do mesmo jeito).
@@ -21,25 +23,40 @@
     Tenta criar symlink em vez de copiar (exige modo Desenvolvedor ou admin).
 
 .PARAMETER Force
-    Recria o modelo derivado mesmo que já exista.
+    Recria o modelo derivado mesmo que já exista e sobrescreve variáveis OLLAMA_* já
+    definidas com outro valor.
+
+.PARAMETER OllamaParallel
+    Requisições simultâneas por modelo no Ollama (OLLAMA_NUM_PARALLEL). Padrão: 2
+
+.PARAMETER SkipOllamaEnv
+    Não grava as variáveis OLLAMA_* de usuário.
+
+.PARAMETER SkipClaude
+    Não instala os agentes e a skill /orquestrar do Claude Code em ~/.claude.
 
 .EXAMPLE
     .\install.ps1
     .\install.ps1 -Context 8192 -Force
     .\install.ps1 -SkipModel
+    .\install.ps1 -OllamaParallel 3
 #>
 [CmdletBinding()]
 param(
     [string]$BaseModel = "qwen3:8b",
-    [int]$Context = 16384,
+    [int]$Context = 12288,
     [switch]$SkipModel,
     [switch]$Link,
-    [switch]$Force
+    [switch]$Force,
+    [ValidateRange(1, 8)]
+    [int]$OllamaParallel = 2,
+    [switch]$SkipOllamaEnv,
+    [switch]$SkipClaude
 )
 
 $ErrorActionPreference = "Stop"
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }
-$ModelName = "qwen3-16k"
+$ModelName = "qwen3-{0}k" -f [int]($Context / 1024)
 
 function Write-Step { param($m) Write-Host ""; Write-Host "==> $m" -ForegroundColor Cyan }
 function Write-Ok   { param($m) Write-Host "  ok  $m" -ForegroundColor Green }
@@ -123,6 +140,10 @@ try {
     exit 1
 }
 
+if (-not (Select-String -LiteralPath $Target -SimpleMatch "`"ollama/${ModelName}:latest`"" -Quiet)) {
+    Write-Warn2 "o config não aponta para ollama/${ModelName}:latest; ajuste agents.<id>.model"
+}
+
 if ($SkipModel) {
     Write-Step "Ollama: ignorado (-SkipModel)"
     Write-Warn2 "os subagentes esperam o modelo '$ModelName' já existente"
@@ -143,8 +164,13 @@ if ($SkipModel) {
         $mf = Join-Path $env:TEMP ("Modelfile-orquestrador-{0}" -f (Get-Random))
         "FROM $BaseModel`nPARAMETER num_ctx $Context" | Out-File -LiteralPath $mf -Encoding ascii
         try {
-            & ollama create $ModelName -f $mf | Out-Host
-            if ($LASTEXITCODE -ne 0) { throw "ollama create retornou $LASTEXITCODE" }
+            # o ollama escreve o progresso no stderr; com "Stop" o PowerShell 5.1 aborta nisso
+            $prevPref = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            & ollama create $ModelName -f $mf 2>$null | Out-Null
+            $code = $LASTEXITCODE
+            $ErrorActionPreference = $prevPref
+            if ($code -ne 0) { throw "ollama create retornou $code" }
             Remove-Item -LiteralPath $mf -Force -ErrorAction SilentlyContinue
             Write-Ok "modelo '$ModelName' criado com num_ctx $Context"
         } catch {
@@ -167,9 +193,81 @@ if ($env:OPENCODE_CONFIG_CONTENT) {
     Write-Ok "variável ausente (o arquivo é a fonte de verdade)"
 }
 
+# Slots do pipeline: o Ollama atende N requisições do mesmo modelo e enfileira o resto.
+# KV cache em q8_0 (exige flash attention): 2 slots de 12k = 6,9 GB, 100% GPU na RX 7600.
+$ollamaEnvChanged = $false
+if ($SkipOllamaEnv) {
+    Write-Step "Variáveis OLLAMA_*: ignorado (-SkipOllamaEnv)"
+} else {
+    Write-Step "Variáveis OLLAMA_* de usuário (slots = $OllamaParallel)"
+    $wanted = [ordered]@{
+        OLLAMA_NUM_PARALLEL      = "$OllamaParallel"
+        OLLAMA_MAX_LOADED_MODELS = "1"
+        OLLAMA_FLASH_ATTENTION   = "1"
+        OLLAMA_KV_CACHE_TYPE     = "q8_0"
+    }
+    foreach ($name in $wanted.Keys) {
+        $current = [Environment]::GetEnvironmentVariable($name, "User")
+        if ($current -eq $wanted[$name]) {
+            Write-Ok "$name=$current"
+        } elseif ($current -and -not $Force) {
+            Write-Warn2 "$name=$current mantido (esperado $($wanted[$name]); use -Force para trocar)"
+        } else {
+            [Environment]::SetEnvironmentVariable($name, $wanted[$name], "User")
+            Write-Ok "$name=$($wanted[$name]) gravado"
+            $ollamaEnvChanged = $true
+        }
+    }
+}
+
+function Install-Item {
+    param([string]$From, [string]$To)
+    if (Test-Path -LiteralPath $To) {
+        $same = (Get-FileHash -LiteralPath $From).Hash -eq (Get-FileHash -LiteralPath $To).Hash
+        if ($same) { Write-Ok "já atualizado: $To"; return }
+        $bak = "{0}.bak.{1}" -f $To, (Get-Date -Format "yyyyMMdd-HHmmss")
+        Copy-Item -LiteralPath $To -Destination $bak -Force
+        Write-Ok "backup: $bak"
+        Remove-Item -LiteralPath $To -Force
+    }
+    if ($Link) {
+        try {
+            New-Item -ItemType SymbolicLink -Path $To -Target $From -ErrorAction Stop | Out-Null
+            Write-Ok "symlink: $To"
+            return
+        } catch {
+            Write-Warn2 "symlink falhou ($($_.Exception.Message)); usando cópia"
+        }
+    }
+    Copy-Item -LiteralPath $From -Destination $To -Force
+    Write-Ok "copiado: $To"
+}
+
+if ($SkipClaude) {
+    Write-Step "Claude Code: ignorado (-SkipClaude)"
+} else {
+    Write-Step "Instalando agentes e skill /orquestrar do Claude Code"
+    $ClaudeDir = Join-Path $env:USERPROFILE ".claude"
+    $AgentsDir = Join-Path $ClaudeDir "agents"
+    $SkillDir  = Join-Path $ClaudeDir "skills\orquestrar"
+    foreach ($d in @($AgentsDir, $SkillDir)) {
+        if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
+    }
+    Get-ChildItem -LiteralPath (Join-Path $RepoDir "claude\agents") -Filter *.md | ForEach-Object {
+        Install-Item -From $_.FullName -To (Join-Path $AgentsDir $_.Name)
+    }
+    Install-Item -From (Join-Path $RepoDir "claude\skills\orquestrar\SKILL.md") -To (Join-Path $SkillDir "SKILL.md")
+}
+
 Write-Step "Pronto"
 Write-Host "  1. Reinicie o OpenCode:  opencode service restart"
 Write-Host "  2. Escolha o modelo do orquestrador com /models"
 Write-Host "  3. Valide o ambiente:    .\verify.ps1"
 Write-Host ""
 Write-Host "  Se os subagentes já estavam rodando, o Ollama vai recarregar o modelo no próximo uso."
+if ($ollamaEnvChanged) {
+    Write-Host "  Variáveis OLLAMA_* mudaram: feche o Ollama na bandeja e abra de novo para aplicar."
+}
+if (-not $SkipClaude) {
+    Write-Host "  Claude Code: abra uma sessão nova e use /orquestrar <pedido>."
+}

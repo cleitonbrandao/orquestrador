@@ -2,7 +2,7 @@
 # Valida a instalação da orquestração do OpenCode (Linux/macOS).
 set -uo pipefail
 
-EXPECTED_MODEL="qwen3-16k:latest"
+EXPECTED_MODEL="qwen3-12k:latest"
 SMOKE=0
 
 for arg in "$@"; do
@@ -52,7 +52,7 @@ else
       const ag = Object.keys(c.agents || {});
       console.log("  \x1b[32mok\x1b[0m  JSON válido");
       console.log("  \x1b[32mok\x1b[0m  default_agent: " + (c.default_agent || "(nao definido)"));
-      for (const id of ["orquestrador","local-helper","qwen-testes"])
+      for (const id of ["orquestrador","decompositor","executor","exec-backend","exec-dados","exec-frontend","local-helper","qwen-testes"])
         console.log((ag.includes(id) ? "  \x1b[32mok\x1b[0m  agente presente: " : "  \x1b[31mx\x1b[0m   agente ausente: ") + id);
       if (c.agents && c.agents.orquestrador && c.agents.orquestrador.model)
         console.log("  \x1b[33m!\x1b[0m   orquestrador tem model fixo (" + c.agents.orquestrador.model + "); /models nao governa");
@@ -71,7 +71,8 @@ cfg = json.load(open(sys.argv[1], encoding="utf-8"))
 ag = list((cfg.get("agents") or {}).keys())
 print("  ok  JSON válido")
 print("  ok  default_agent: " + str(cfg.get("default_agent") or "(nao definido)"))
-for i in ("orquestrador", "local-helper", "qwen-testes"):
+EXPECTED = ("orquestrador", "decompositor", "executor", "exec-backend", "exec-dados", "exec-frontend", "local-helper", "qwen-testes")
+for i in EXPECTED:
     print(("  ok  agente presente: " if i in ag else "  x   agente ausente: ") + i)
 orc = (cfg.get("agents") or {}).get("orquestrador") or {}
 if orc.get("model"):
@@ -80,7 +81,7 @@ elif orc:
     print("  ok  orquestrador sem model fixo (segue o /models)")
 if cfg.get("model"):
     print("  !   chave model no topo fixa o padrao: " + str(cfg["model"]))
-sys.exit(0 if all(i in ag for i in ("orquestrador","local-helper","qwen-testes")) else 1)
+sys.exit(0 if all(i in ag for i in EXPECTED) else 1)
 PY
     then :; else bad "config inválido ou agentes faltando"; fi
   fi
@@ -154,6 +155,31 @@ if command -v opencode >/dev/null 2>&1; then
             const n = (orc.permissions || []).filter(x => x.action === "subagent" && x.effect === "allow").length;
             console.log("  ok  orquestrador: " + n + " delegacoes permitidas");
             if (n === 0) { console.log("  x   orquestrador: nenhuma delegacao permitida"); fails++; }
+            for (const id of ["decompositor", "executor", "exec-backend", "exec-dados", "exec-frontend"]) {
+              if ((orc.permissions || []).some(x => x.action === "subagent" && x.resource === id && x.effect === "allow")) console.log("  ok  orquestrador: pode delegar ao " + id);
+              else { console.log("  x   orquestrador: delegacao ao " + id + " nao permitida"); fails++; }
+            }
+          }
+          // Pipeline: decompositor só lê; executor edita mas não roda shell e só aciona o qwen-testes.
+          const dec = g("decompositor");
+          if (!dec) { console.log("  x   agente não carregado: decompositor"); fails++; }
+          else {
+            const p = dec.permissions || [];
+            for (const act of ["edit", "shell"]) {
+              if (p.some(x => x.action === act && x.resource === "*" && x.effect === "deny")) console.log("  ok  decompositor: " + act + " negado");
+              else { console.log("  x   decompositor: " + act + " NAO negado"); fails++; }
+            }
+          }
+          for (const id of ["executor", "exec-backend", "exec-dados", "exec-frontend"]) {
+            const exe = g(id);
+            if (!exe) { console.log("  x   agente não carregado: " + id); fails++; continue; }
+            const p = exe.permissions || [];
+            if (p.some(x => x.action === "shell" && x.resource === "*" && x.effect === "deny")) console.log("  ok  " + id + ": shell negado");
+            else { console.log("  x   " + id + ": shell NAO negado"); fails++; }
+            const subs = p.filter(x => x.action === "subagent");
+            const last = subs[subs.length - 1];
+            if (last && last.resource === "qwen-testes" && last.effect === "allow") console.log("  ok  " + id + ": só delega ao qwen-testes");
+            else { console.log("  x   " + id + ": regra de subagente diferente de qwen-testes allow no fim"); fails++; }
           }
           process.exit(fails > 0 ? 1 : 0);
         });
@@ -195,6 +221,21 @@ sys.exit(1 if fails else 0)
     warn "node/python3 ausentes: permissões não foram verificadas em detalhe"
   fi
 fi
+
+step "Slots do Ollama"
+if [ -n "${OLLAMA_NUM_PARALLEL:-}" ]; then
+  ok "OLLAMA_NUM_PARALLEL=$OLLAMA_NUM_PARALLEL neste shell"
+else
+  warn "OLLAMA_NUM_PARALLEL não está neste shell (confira no serviço: systemctl show ollama -p Environment)"
+fi
+if command -v ollama >/dev/null 2>&1 && ollama ps 2>&1 | grep -q "CPU"; then
+  warn "ollama ps mostra uso de CPU: modelo não coube inteiro na VRAM"
+fi
+
+step "Claude Code (~/.claude)"
+for f in agents/decompositor.md agents/executor.md agents/exec-backend.md agents/exec-dados.md agents/exec-frontend.md agents/testador.md skills/orquestrar/SKILL.md; do
+  if [ -f "$HOME/.claude/$f" ]; then ok "presente: $f"; else warn "ausente: $HOME/.claude/$f (rode ./install.sh)"; fi
+done
 
 if [ "$SMOKE" -eq 1 ]; then
   step "Teste real de delegação (qwen-testes)"

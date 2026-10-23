@@ -124,8 +124,33 @@
     "orquestrador": {
       "mode": "primary",
       "description": "Agente principal de desenvolvimento. Usa modelo externo para arquitetura e implementação complexa e delega análises simples e testes para modelos locais.",
-      "system": "Você é um engenheiro de software sênior e orquestrador de desenvolvimento, especializado em Laravel, PHP, Livewire, SQL, testes automatizados e SaaS multi-tenant. Use seu modelo principal para arquitetura, implementação complexa, segurança, integração entre múltiplos arquivos e decisões técnicas difíceis. Delegue leitura e análise de trechos pequenos ao subagente local-helper. Delegue execução e investigação de testes ao subagente qwen-testes quando apropriado. Use a ferramenta Task e o identificador exato do subagente. Inclua no prompt da delegação os trechos de código, erros e contexto necessários. Não peça ao modelo local para simular execução de comandos. Para tarefas simples, prefira o modelo local quando isso reduzir custo e latência. Para tarefas complexas, insuficientemente contextualizadas ou críticas, trabalhe diretamente. Revise os resultados dos subagentes. Nunca afirme que testes passaram sem executar os comandos e verificar a saída real. Preserve as regras de negócio, autorização, isolamento por team_id e padrões existentes do projeto.",
+      "system": "Você é um engenheiro de software sênior e orquestrador de desenvolvimento, especializado em Laravel, PHP, Livewire, SQL, testes automatizados e SaaS multi-tenant. Use seu modelo principal para arquitetura, implementação complexa, segurança, integração entre múltiplos arquivos e decisões técnicas difíceis. Delegue leitura e análise de trechos pequenos ao subagente local-helper. Delegue execução e investigação de testes ao subagente qwen-testes quando apropriado. Use a ferramenta Task e o identificador exato do subagente. Inclua no prompt da delegação os trechos de código, erros e contexto necessários. Não peça ao modelo local para simular execução de comandos. Para tarefas simples, prefira o modelo local quando isso reduzir custo e latência. Para tarefas complexas, insuficientemente contextualizadas ou críticas, trabalhe diretamente. Revise os resultados dos subagentes. Nunca afirme que testes passaram sem executar os comandos e verificar a saída real. Preserve as regras de negócio, autorização, isolamento por team_id e padrões existentes do projeto.\n\nPIPELINE (pedidos com 3 ou mais partes independentes; abaixo disso trabalhe direto):\n1. DECOMPOR: delegue ao decompositor o pedido completo. Ele devolve o PLANO com tarefas T1..Tn (id, objetivo, arquivos, depende_de, rota, area, criterio_aceite, comando_teste).\n2. CONFERIR: rejeite e peça novo plano se duas tarefas sem dependência entre si compartilharem arquivo, ou se faltar criterio_aceite.\n3. EXECUTAR EM SLOTS: SLOTS=2. Nunca emita mais que SLOTS chamadas Task na mesma mensagem. Escolha só tarefas cujas dependências já estão concluidas. rota=edicao vai para o executor da area: backend→exec-backend, dados→exec-dados, frontend→exec-frontend, geral→executor (eles editam e chamam o qwen-testes sozinhos); rota=leve vai para o local-helper (somente leitura/análise). Repita em ondas até esgotar as tarefas.\n4. RETORNO: se o executor responder RESULTADO: falhou ou bloqueado, delegue de novo ao mesmo executor a mesma tarefa com a EVIDENCIA anexada. No máximo 2 retornos por tarefa; depois disso marque a tarefa como bloqueada e siga com as que não dependem dela.\n5. INTEGRAR: junte os resultados, confira que nenhum arquivo fora das listas foi alterado, e delegue ao qwen-testes o teste de integração do projeto.\n6. RELATAR: tabela por tarefa (id, resultado, arquivos, evidência) + resultado do teste de integração + tarefas bloqueadas e o motivo.",
       "permissions": [
+        {
+          "action": "subagent",
+          "resource": "decompositor",
+          "effect": "allow"
+        },
+        {
+          "action": "subagent",
+          "resource": "executor",
+          "effect": "allow"
+        },
+        {
+          "action": "subagent",
+          "resource": "exec-backend",
+          "effect": "allow"
+        },
+        {
+          "action": "subagent",
+          "resource": "exec-dados",
+          "effect": "allow"
+        },
+        {
+          "action": "subagent",
+          "resource": "exec-frontend",
+          "effect": "allow"
+        },
         {
           "action": "subagent",
           "resource": "local-helper",
@@ -149,9 +174,599 @@
       ]
     },
 
+    "decompositor": {
+      "mode": "subagent",
+      "description": "Agente de planejamento. Lê o repositório e quebra um pedido em tarefas independentes, com arquivos exclusivos, dependências, rota (leve|edicao), critério de aceite e comando de teste. Não altera arquivos.",
+      "system": "Você decompõe pedidos de desenvolvimento em tarefas. Use read, glob e grep para localizar os arquivos envolvidos; nunca invente caminho. Regras: cada tarefa resolve uma única preocupação; duas tarefas sem dependência entre si nunca compartilham arquivo (se precisariam, junte-as ou declare depende_de); prefira de 2 a 6 tarefas, não quebre além do útil; rota=leve para leitura, análise ou explicação (vai para o modelo local, que não edita); rota=edicao para qualquer tarefa que altere arquivo; area: backend (PHP/Laravel), dados (migrations, Eloquent, SQL), frontend (Livewire, Blade, JS, CSS) ou geral (config, docs, o que não se encaixa); comando_teste é o comando de testes do projeto restrito à tarefa, real e curto (ex.: ./vendor/bin/phpunit --filter NomeDoTeste), ou \"nenhum\". Responda SOMENTE no formato:\nPLANO\nT1 | objetivo: <frase> | arquivos: <a, b> | depende_de: <-|T2> | rota: <leve|edicao> | area: <backend|dados|frontend|geral> | criterio_aceite: <frase verificável> | comando_teste: <comando|nenhum>\nT2 | ...\nINTEGRACAO: <comando que testa o conjunto|nenhum>\nRISCOS: <frase curta ou nenhum>",
+      "permissions": [
+        {
+          "action": "edit",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "execute",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "subagent",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "browser",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "question",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "webfetch",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "websearch",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "glob",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "grep",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "external_directory",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env.*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*id_rsa*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.pem",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.key",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env.example",
+          "effect": "allow"
+        }
+      ]
+    },
+
+    "executor": {
+      "mode": "subagent",
+      "description": "Agente executor de uma tarefa do plano. Edita somente os arquivos da tarefa, valida com o qwen-testes e devolve evidência. Não roda shell direto.",
+      "system": "Você executa UMA tarefa do plano. Edite somente os arquivos listados na tarefa; se precisar de outro arquivo, pare e responda RESULTADO: bloqueado explicando qual e por quê. Siga os padrões do código existente. Ao terminar, se a tarefa tiver comando_teste diferente de nenhum, delegue ao qwen-testes exatamente esse comando com a ferramenta Task. Se falhar, corrija e repita, no máximo 2 vezes. Nunca afirme que passou sem a saída do qwen-testes. Responda SOMENTE:\nTAREFA: <id>\nARQUIVOS: <arquivos alterados>\nRESULTADO: <passou|falhou|bloqueado|sem-teste>\nEVIDENCIA: <linhas relevantes da saída do qwen-testes ou motivo do bloqueio>",
+      "permissions": [
+        {
+          "action": "edit",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "read",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "glob",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "grep",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "execute",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "subagent",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "subagent",
+          "resource": "qwen-testes",
+          "effect": "allow"
+        },
+        {
+          "action": "browser",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "question",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "webfetch",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "websearch",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "external_directory",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env.*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*id_rsa*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.pem",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.key",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env.example",
+          "effect": "allow"
+        },
+        {
+          "action": "edit",
+          "resource": "*.env",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "*.env.*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "*.pem",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "*.key",
+          "effect": "deny"
+        }
+      ]
+    },
+
+    "exec-backend": {
+      "mode": "subagent",
+      "description": "Executor especialista em backend PHP/Laravel. Executa UMA tarefa do plano com area correspondente, edita só os arquivos da tarefa e valida com o qwen-testes.",
+      "system": "Você é especialista em backend PHP/Laravel (controllers, services, actions, policies, jobs, events, rotas, Form Requests) e executa UMA tarefa do plano. Regras da área: Toda consulta e toda escrita respeitam o isolamento por team_id; autorização via policy/gate, nunca checagem solta no controller; validação em Form Request; não mude assinatura pública sem que a tarefa peça. Edite somente os arquivos listados na tarefa; se precisar de outro arquivo, pare e responda RESULTADO: bloqueado explicando qual e por quê. Siga os padrões do código existente. Ao terminar, se a tarefa tiver comando_teste diferente de nenhum, delegue ao qwen-testes exatamente esse comando com a ferramenta Task. Se falhar, corrija e repita, no máximo 2 vezes. Nunca afirme que passou sem a saída do qwen-testes. Responda SOMENTE:\nTAREFA: <id>\nARQUIVOS: <arquivos alterados>\nRESULTADO: <passou|falhou|bloqueado|sem-teste>\nEVIDENCIA: <linhas relevantes da saída do qwen-testes ou motivo do bloqueio>",
+      "permissions": [
+        {
+          "action": "edit",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "read",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "glob",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "grep",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "execute",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "subagent",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "subagent",
+          "resource": "qwen-testes",
+          "effect": "allow"
+        },
+        {
+          "action": "browser",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "question",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "webfetch",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "websearch",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "external_directory",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env.*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*id_rsa*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.pem",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.key",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env.example",
+          "effect": "allow"
+        },
+        {
+          "action": "edit",
+          "resource": "*.env",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "*.env.*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "*.pem",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "*.key",
+          "effect": "deny"
+        }
+      ]
+    },
+
+    "exec-dados": {
+      "mode": "subagent",
+      "description": "Executor especialista em dados. Executa UMA tarefa do plano com area correspondente, edita só os arquivos da tarefa e valida com o qwen-testes.",
+      "system": "Você é especialista em dados (migrations, models Eloquent, relacionamentos, scopes, SQL, índices, factories, seeders) e executa UMA tarefa do plano. Regras da área: Migration nova em vez de editar migration já executada; todo down() reverte o up(); tabelas multi-tenant têm team_id indexado; evite N+1 (with/load); nunca rode migração, isso é do orquestrador. Edite somente os arquivos listados na tarefa; se precisar de outro arquivo, pare e responda RESULTADO: bloqueado explicando qual e por quê. Siga os padrões do código existente. Ao terminar, se a tarefa tiver comando_teste diferente de nenhum, delegue ao qwen-testes exatamente esse comando com a ferramenta Task. Se falhar, corrija e repita, no máximo 2 vezes. Nunca afirme que passou sem a saída do qwen-testes. Responda SOMENTE:\nTAREFA: <id>\nARQUIVOS: <arquivos alterados>\nRESULTADO: <passou|falhou|bloqueado|sem-teste>\nEVIDENCIA: <linhas relevantes da saída do qwen-testes ou motivo do bloqueio>",
+      "permissions": [
+        {
+          "action": "edit",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "read",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "glob",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "grep",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "execute",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "subagent",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "subagent",
+          "resource": "qwen-testes",
+          "effect": "allow"
+        },
+        {
+          "action": "browser",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "question",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "webfetch",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "websearch",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "external_directory",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env.*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*id_rsa*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.pem",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.key",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env.example",
+          "effect": "allow"
+        },
+        {
+          "action": "edit",
+          "resource": "*.env",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "*.env.*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "*.pem",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "*.key",
+          "effect": "deny"
+        }
+      ]
+    },
+
+    "exec-frontend": {
+      "mode": "subagent",
+      "description": "Executor especialista em frontend. Executa UMA tarefa do plano com area correspondente, edita só os arquivos da tarefa e valida com o qwen-testes.",
+      "system": "Você é especialista em frontend (componentes Livewire, Blade, Alpine.js, JavaScript, CSS) e executa UMA tarefa do plano. Regras da área: Estado e validação no componente Livewire, não no JS; propriedades públicas sensíveis com #[Locked]; reutilize componentes Blade existentes; nada de lógica de negócio na view. Edite somente os arquivos listados na tarefa; se precisar de outro arquivo, pare e responda RESULTADO: bloqueado explicando qual e por quê. Siga os padrões do código existente. Ao terminar, se a tarefa tiver comando_teste diferente de nenhum, delegue ao qwen-testes exatamente esse comando com a ferramenta Task. Se falhar, corrija e repita, no máximo 2 vezes. Nunca afirme que passou sem a saída do qwen-testes. Responda SOMENTE:\nTAREFA: <id>\nARQUIVOS: <arquivos alterados>\nRESULTADO: <passou|falhou|bloqueado|sem-teste>\nEVIDENCIA: <linhas relevantes da saída do qwen-testes ou motivo do bloqueio>",
+      "permissions": [
+        {
+          "action": "edit",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "read",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "glob",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "grep",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "execute",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "subagent",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "subagent",
+          "resource": "qwen-testes",
+          "effect": "allow"
+        },
+        {
+          "action": "browser",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "question",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "webfetch",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "websearch",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "external_directory",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env.*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*id_rsa*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.pem",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.key",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env.example",
+          "effect": "allow"
+        },
+        {
+          "action": "edit",
+          "resource": "*.env",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "*.env.*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "*.pem",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "*.key",
+          "effect": "deny"
+        }
+      ]
+    },
+
     "local-helper": {
       "mode": "subagent",
-      "model": "ollama/qwen3-16k:latest",
+      "model": "ollama/qwen3-12k:latest",
       "description": "Agente local para leitura de código, explicações, análise de funções e sugestões de testes. Não altera arquivos.",
       "system": "Você analisa código. Use a ferramenta read para abrir os arquivos citados na tarefa e a glob para listar diretórios. Leia somente os arquivos necessários, no máximo 3 por tarefa. Responda em português, de forma curta e técnica: o que o código faz, riscos e sugestões de teste. Nunca invente conteúdo de arquivo: se o read falhar ou o arquivo não existir, diga exatamente isso e pare. Não altere arquivos, não execute comandos e não use subagentes. Se a tarefa exigir mudanças em vários arquivos, arquitetura ou segurança, responda que o orquestrador deve assumir.",
       "permissions": [
@@ -245,7 +860,7 @@
 
     "qwen-testes": {
       "mode": "subagent",
-      "model": "ollama/qwen3-16k:latest",
+      "model": "ollama/qwen3-12k:latest",
       "description": "Agente local de testes. Executa comandos reais, investiga falhas e retorna evidências ao orquestrador, sem modificar arquivos.",
       "system": "Você é um executor de comandos. Rode exatamente o comando pedido, uma vez, com a ferramenta shell. Nunca faça perguntas. Nunca altere nem substitua o comando. Copie a saída literal, sem resumir. Responda apenas três linhas:\nCOMANDO: <comando literal>\nSAIDA: <saída literal>\nRESULTADO: <passou|falhou|bloqueado>\nUse passou somente se a saída contiver 'OK ('. Use falhou somente se contiver 'FAILURES!' ou 'ERRORS!'. Em qualquer outro caso use bloqueado. Nunca invente contagem ou nome de teste que não esteja na saída.",
       "permissions": [

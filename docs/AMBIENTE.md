@@ -24,7 +24,7 @@ Data da medição: **2026-10-23**.
 | OpenCode | **v2.1.3** | instalado global via npm (`npm i -g @opencode/cli`) |
 | Node.js | v22.13.1 | necessário para o OpenCode via npm |
 | npm | 11.1.0 | |
-| Ollama | **0.40.9** | app de bandeja (`ollama app.exe`), API em `127.0.0.1:11434` |
+| Ollama | **0.40.10** | app de bandeja (`ollama app.exe`), API em `127.0.0.1:11434` |
 | git | 2.39.1.windows.1 | |
 | gh | 2.39.1 | autenticado como `cleitonbrandao` |
 
@@ -33,20 +33,26 @@ Data da medição: **2026-10-23**.
 Saída de `ollama list` na máquina de referência:
 
 ```
-NAME                ID              SIZE      MODIFIED
-qwen3-16k:latest    a7e33c9e82f6    5.2 GB    (derivado)
-qwen3:8b            500a1f067a9f    5.2 GB
+NAME                   ID              SIZE      MODIFIED
+qwen3-12k:latest       51e448e602f6    5.2 GB    (derivado, em uso)
+qwen3-16k:latest       a7e33c9e82f6    5.2 GB    (derivado anterior)
+qwen3-4b-cpu:latest    2628f6ef27c5    2.5 GB    (teste da Decisão 13, não usado)
+qwen3:4b-instruct      0edcdef34593    2.5 GB
+qwen3:4b               359d7dd4bcda    2.5 GB
+qwen3:8b               500a1f067a9f    5.2 GB
 deepseek-r1:8b      6995872bfe4c    5.2 GB
 llama3.2:3b         a80c4f17acd5    2.0 GB
 qwen2.5-coder:7b    dae161e27b0e    4.7 GB
 qwen3.8:27b         aaee06c39dcf    17 GB
 ```
 
-O modelo usado pelos dois subagentes é **`qwen3-16k`**, um modelo derivado de `qwen3:8b`:
+O modelo usado pelos dois subagentes locais é **`qwen3-12k`**, um modelo derivado de
+`qwen3:8b` (antes era `qwen3-16k`; 12k é o que cabe com 2 slots, ver ARQUITETURA,
+Decisão 11):
 
 ```
 FROM qwen3:8b
-PARAMETER num_ctx 16384
+PARAMETER num_ctx 12288
 ```
 
 Por que derivar em vez de configurar no OpenCode: ver
@@ -55,22 +61,37 @@ Por que derivar em vez de configurar no OpenCode: ver
 Confirmação de que o parâmetro pegou:
 
 ```powershell
-ollama show qwen3-16k --modelfile | Select-String num_ctx
-# PARAMETER num_ctx 16384
+ollama show qwen3-12k --modelfile | Select-String num_ctx
+# PARAMETER num_ctx 12288
 ```
 
 e, com o modelo carregado:
 
 ```powershell
 ollama ps
-# qwen3-16k ... 6.74 GB  CONTEXT 16384
+# qwen3-12k:latest ... 6.9 GB  100% GPU  12288     (2 slots carregados)
 ```
+
+## Variáveis do Ollama (variáveis de usuário no Windows)
+
+| Variável | Valor | Por quê |
+|---|---|---|
+| `OLLAMA_NUM_PARALLEL` | `2` | 2 requisições simultâneas por modelo; o resto enfileira |
+| `OLLAMA_MAX_LOADED_MODELS` | `1` | um modelo na VRAM; nada de troca silenciosa |
+| `OLLAMA_FLASH_ATTENTION` | `1` | exigido para quantizar o KV cache |
+| `OLLAMA_KV_CACHE_TYPE` | `q8_0` | KV pela metade; 2 × 12k cabe em 6,9 GB |
+
+Conferir se o servidor pegou: `server.log` em `%LOCALAPPDATA%\Ollama` deve mostrar
+`OLLAMA_NUM_PARALLEL:2` e, na carga, `n_slots = 2`.
 
 ## Desempenho medido
 
 | Cenário | Tempo | Observação |
 |---|---|---|
 | `qwen3-16k` a 16384, um turno completo com *thinking* | **~100 s** | 1695 tokens de saída; GPU RX 7600 |
+| `qwen3-12k`, 2 slots simultâneos, 300 tokens cada | **30,4 tok/s por slot** | 6,9 GB, 100% GPU |
+| `qwen3-16k`, 2 slots simultâneos, 300 tokens cada | 20,5 tok/s por slot | 8,1 GB, 10% CPU |
+| `qwen3:4b-instruct` na CPU, smoke `qwen-testes` no OpenCode | 388 s | prompt de ~3,9k tokens a ~35 tok/s; descartado |
 | `qwen3:8b` a 4096, chamada nativa única | **~22 s** | sem orquestração |
 | modelo free de nuvem (`flint-40b-free`) | **~5 s** | usado como orquestrador em teste |
 

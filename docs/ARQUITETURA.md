@@ -4,17 +4,39 @@ Documento do **porquê** de cada escolha, com a evidência que sustentou a decis
 
 ## Visão geral
 
-Três agentes, papéis bem separados:
+Oito agentes em um pipeline **decompor → executar em slots → testar → integrar**
+(esboço original em [`esboco_possivel_estrutura.png`](esboco_possivel_estrutura.png)):
+
+```
+pedido ─► orquestrador ─► decompositor ─► PLANO (T1..Tn, area, rota, arquivos, teste)
+              │
+              │  no máximo SLOTS=2 Task por mensagem, só tarefas com dependências prontas
+              ├─► rota=edicao ─► exec-backend | exec-dados | exec-frontend | executor
+              │                      │ edita só os arquivos da tarefa
+              │                      └─► qwen-testes (subagente aninhado) ─► passou?
+              │                             falhou ─► volta ao mesmo executor (≤ 2x) ─► bloqueado
+              ├─► rota=leve ───► local-helper (só leitura)
+              └─► integração: confere arquivos alterados + qwen-testes no teste do conjunto
+```
 
 | Agente | Modo | Modelo | Ferramentas |
 |---|---|---|---|
 | `orquestrador` | `primary` | **nenhum** (segue `/models`) | tudo; `shell` e `edit` em `ask` |
-| `local-helper` | `subagent` | `ollama/qwen3-16k:latest` | `read`, `glob` |
-| `qwen-testes` | `subagent` | `ollama/qwen3-16k:latest` | `shell` (ask), `read` |
+| `decompositor` | `subagent` | nenhum (herda o da sessão) | `read`, `glob`, `grep` |
+| `exec-backend` / `exec-dados` / `exec-frontend` / `executor` | `subagent` | nenhum (herda o da sessão) | `edit`, `read`, `glob`, `grep`; `subagent` só `qwen-testes` |
+| `local-helper` | `subagent` | `ollama/qwen3-12k:latest` | `read`, `glob` |
+| `qwen-testes` | `subagent` | `ollama/qwen3-12k:latest` | `shell` (ask), `read` |
 
 O objetivo é econômico: leitura de código e execução de testes são as operações mais
 frequentes e mais mecânicas. Mandá-las para um modelo local de 8B custa US$ 0,00 e
-preserva o contexto do modelo principal para o que realmente exige raciocínio.
+preserva o contexto do modelo principal para o que realmente exige raciocínio. Planejar
+e editar ficam com o modelo de nuvem, porque um erro ali contamina todas as tarefas
+seguintes.
+
+No Claude Code o mesmo pipeline é a skill `/orquestrar` (`claude/skills/orquestrar`), com
+os agentes em `claude/agents/` (`decompositor`, `exec-*` e `executor` em `sonnet`;
+`testador` em `haiku`). Lá não há modelo local: "leve" é o próprio agente principal ou o
+`Explore`.
 
 ## Decisão 1 — `orquestrador` sem modelo fixo
 
@@ -44,6 +66,9 @@ agente sem as regras. Migrando para `agents`, as regras aparecem na lista.
 **Sintoma de alerta:** agente listado, mas `edit`/`shell` funcionando sem pedir permissão.
 
 ## Decisão 3 — Modelo derivado para o contexto
+
+> **Atualizada pela Decisão 11:** o derivado agora é `qwen3-12k` (`num_ctx 12288`), para
+> caber 2 slots paralelos na GPU. O `qwen3-16k` abaixo é o histórico da decisão.
 
 **O que foi feito:** `qwen3-16k` = `FROM qwen3:8b` + `PARAMETER num_ctx 16384`.
 
@@ -110,6 +135,99 @@ Code Mode dá ao modelo um runtime JavaScript com acesso a ferramentas. Em um mo
 de 8B o resultado é imprevisível e foge da auditoria linha a linha. O `qwen-testes` usa
 `shell` direto: um comando, uma saída, uma evidência.
 
+## Decisão 9 — Pipeline com contrato de plano
+
+**O que foi feito:** o `decompositor` devolve um plano em formato fixo, uma linha por
+tarefa:
+
+```
+T1 | objetivo: … | arquivos: a, b | depende_de: - | rota: leve|edicao | area: backend|dados|frontend|geral | criterio_aceite: … | comando_teste: …|nenhum
+INTEGRACAO: <comando|nenhum>
+RISCOS: …
+```
+
+**Por quê (ajustes ao esboço):**
+- "quebrar o máximo possível" gera overhead e conflito. A regra é **unidade
+  independente**: duas tarefas sem dependência nunca compartilham arquivo, de 2 a 6
+  tarefas, e só entra em slot a tarefa cujas dependências já passaram (DAG);
+- o "analisar se pode ser local" do esboço virou o campo `rota`;
+- sem `criterio_aceite` e `comando_teste` o testador não tem o que provar.
+
+O orquestrador rejeita o plano se houver arquivo compartilhado sem dependência ou se
+faltar critério.
+
+## Decisão 10 — Testador aninhado no executor, com teto de retorno
+
+**O que foi feito:** cada executor tem `subagent: * deny` seguido de
+`subagent: qwen-testes allow`. Ele mesmo testa e corrige até 2 vezes; o orquestrador
+ainda pode devolver a tarefa ao **mesmo** executor com a evidência, também no máximo 2
+vezes, e depois a marca como `bloqueado`.
+
+**Por quê:** uma chamada `Task` do orquestrador espera todas as outras da mesma
+mensagem. Com o teste dentro do executor, cada slot vira um pipeline completo
+(executor → testador → correção), sem precisar de uma "onda de testes" separada. O teto
+evita o loop infinito do esboço (testador ↔ executora).
+
+**Evidência (2026-10-23):** `opencode run --auto --agent executor` pedindo para delegar
+`git --version` → o executor chamou o `qwen-testes` via Task, o comando rodou de verdade
+(`git version 2.39.1.windows.1`) e o veredito voltou `bloqueado` (correto: não é saída
+de PHPUnit). Os subagentes nativos `general`/`explore` vêm com `subagent * deny`,
+outra confirmação de que o aninhamento é uma permissão, não uma limitação.
+
+## Decisão 11 — 2 slots: `OLLAMA_NUM_PARALLEL=2`, KV `q8_0` e contexto 12k
+
+**O que foi feito:** variáveis de usuário `OLLAMA_NUM_PARALLEL=2`,
+`OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_FLASH_ATTENTION=1`, `OLLAMA_KV_CACHE_TYPE=q8_0`
+e modelo derivado `qwen3-12k`. No orquestrador, `SLOTS=2` no prompt.
+
+**Por quê:** o limite "duro" de carga é o Ollama: ele atende N requisições do mesmo
+modelo e **enfileira** o resto, decida o LLM o que decidir. O KV cache é por slot, então
+2 slots dobram o KV. Com `q8_0` ele cai pela metade, mas 2 × 16k ainda não cabe.
+
+**Evidência (RX 7600 8 GB, 2 requisições simultâneas, 300 tokens cada):**
+
+| ctx por slot | VRAM | processador | tok/s por slot |
+|---|---|---|---|
+| 16384 | 8,1 GB | 10% CPU / 90% GPU | 20,5 |
+| **12288** | **6,9 GB** | **100% GPU** | **30,4** |
+| 8192 | 6,3 GB | 100% GPU | — |
+
+12k é ~48% mais rápido que 16k e não vaza para a CPU. `SLOTS` acima de 2 não ajuda na
+parte local (o Ollama enfileira), só na de nuvem.
+
+**Como trocar:** `.\install.ps1 -OllamaParallel 3` + `SLOTS=3` no prompt do orquestrador
+e na skill. Com 3 slots, reduza o contexto (`-Context 8192` → `qwen3-8k`).
+
+## Decisão 12 — Especialistas por prompt, não por modelo
+
+**O que foi feito:** `exec-backend`, `exec-dados` e `exec-frontend` têm as mesmas
+permissões do `executor` e regras próprias no `system` (isolamento por `team_id` e
+policies; migrations reversíveis e N+1; Livewire com `#[Locked]`). O `decompositor` marca
+a `area`.
+
+**Por quê:** 8 GB comportam **um** modelo de 8B. Um modelo local por assunto obriga a
+trocar de modelo na GPU a cada tarefa (5–10 s por troca) e acaba com o paralelismo. Os
+modelos "coder" pequenos também falham em `tool_calls` (Decisão 4). Especializar o prompt
+não custa VRAM.
+
+## Decisão 13 — Testador pequeno na CPU: testado e descartado
+
+**Hipótese:** um `qwen3:4b` na CPU (`num_gpu 0`) como testador, deixando a GPU inteira
+para o modelo de 8B.
+
+**Evidência:**
+- `qwen3:4b` (tag padrão = variante *thinking* 2507) ignora `think=false` e despeja o
+  raciocínio no `content`: 362 tokens para uma tool call contra 26 do 8B;
+- `qwen3:4b-instruct` corrige isso: tool call certa em 3,9 s com prompt curto, e a GPU
+  segue em 32,9 tok/s ao mesmo tempo;
+- **mas dentro do OpenCode** o prompt tem ~3.900 tokens (system + ferramentas), e na CPU a
+  leitura do prompt sai a ~35 tok/s, ou seja ~110 s **por turno** antes de gerar qualquer
+  coisa. O smoke `qwen-testes → git --version` levou **388 s**. Com o 8B na GPU, leva
+  segundos.
+
+**Decisão:** `qwen-testes` fica no `qwen3-12k` (GPU) e `OLLAMA_MAX_LOADED_MODELS=1`.
+Reavaliar com uma CPU mais rápida ou uma GPU com folga para um segundo modelo.
+
 ## Contrato de saída do `qwen-testes`
 
 ```
@@ -147,6 +265,8 @@ que não existe (`./vendor/bin/phpunit` em diretório errado) devolve
 | `options.num_ctx` / `body.num_ctx` no provider | ignorado; segue 4096 |
 | `{env:VAR:-default}` no `model` do agente | agente **desaparece** da lista, sem erro |
 | `shell: ask` em subagente esperando prompt | não há prompt; executa |
+| 2 slots de 16k na RX 7600 | 8,1 GB, 10% em CPU, 20 tok/s (ver Decisão 11) |
+| `qwen3:4b` na CPU como testador | 388 s por teste no OpenCode (ver Decisão 13) |
 
 Para reproduzir qualquer um desses sintomas, veja
 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).

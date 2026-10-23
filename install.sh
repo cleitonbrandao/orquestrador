@@ -3,15 +3,16 @@
 #
 # Copia opencode/opencode.json para ${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json
 # com backup do arquivo atual, e garante o modelo derivado do Ollama
-# (qwen3-16k = qwen3:8b + num_ctx 16384).
+# (qwen3-12k = qwen3:8b + num_ctx 12288) e os agentes do Claude Code.
 set -euo pipefail
 
 BASE_MODEL="qwen3:8b"
-CONTEXT=16384
-MODEL_NAME="qwen3-16k"
+CONTEXT=12288
 SKIP_MODEL=0
 LINK=0
 FORCE=0
+PARALLEL=2
+SKIP_CLAUDE=0
 
 usage() {
   cat <<EOF
@@ -22,6 +23,8 @@ Uso: ./install.sh [opções]
   --no-model         não mexe no Ollama
   --link             cria symlink em vez de copiar (recomendado para editar no repo)
   --force            recria o modelo derivado mesmo que já exista
+  --parallel <n>     slots simultâneos no Ollama (OLLAMA_NUM_PARALLEL, padrão: $PARALLEL)
+  --no-claude        não instala os agentes e a skill /orquestrar do Claude Code
   -h, --help         esta ajuda
 EOF
 }
@@ -33,10 +36,15 @@ while [ $# -gt 0 ]; do
     --no-model) SKIP_MODEL=1; shift ;;
     --link)     LINK=1; shift ;;
     --force)    FORCE=1; shift ;;
+    --parallel) PARALLEL="${2:?--parallel exige um valor}"; shift 2 ;;
+    --no-claude) SKIP_CLAUDE=1; shift ;;
     -h|--help)  usage; exit 0 ;;
     *) echo "Opção desconhecida: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
+
+# o nome segue o contexto: 12288 -> qwen3-12k, 16384 -> qwen3-16k
+MODEL_NAME="qwen3-$((CONTEXT / 1024))k"
 
 step()  { printf '\n\033[36m==> %s\033[0m\n' "$1"; }
 ok()    { printf '  \033[32mok\033[0m  %s\n' "$1"; }
@@ -129,6 +137,8 @@ if [ "$valid" -eq 0 ]; then
   exit 1
 fi
 
+grep -q "\"ollama/$MODEL_NAME:latest\"" "$TARGET" || warn "o config não aponta para ollama/$MODEL_NAME:latest; ajuste agents.<id>.model"
+
 if [ "$SKIP_MODEL" -eq 1 ]; then
   step "Ollama: ignorado (--no-model)"
   warn "os subagentes esperam o modelo '$MODEL_NAME' já existente"
@@ -168,9 +178,64 @@ else
   ok "variável ausente (o arquivo é a fonte de verdade)"
 fi
 
+# Claude Code: agentes e skill /orquestrar em ~/.claude
+install_item() {
+  local from="$1" to="$2"
+  if [ -e "$to" ] || [ -L "$to" ]; then
+    if cmp -s "$from" "$to"; then ok "já atualizado: $to"; return; fi
+    local bak="$to.bak.$(date +%Y%m%d-%H%M%S)"
+    cp -pL "$to" "$bak" 2>/dev/null && ok "backup: $bak"
+    rm -f "$to"
+  fi
+  if [ "$LINK" -eq 1 ] && ln -s "$from" "$to" 2>/dev/null; then
+    ok "symlink: $to"
+  else
+    cp "$from" "$to"
+    ok "copiado: $to"
+  fi
+}
+
+if [ "$SKIP_CLAUDE" -eq 1 ]; then
+  step "Claude Code: ignorado (--no-claude)"
+else
+  step "Instalando agentes e skill /orquestrar do Claude Code"
+  AGENTS_DIR="$HOME/.claude/agents"
+  SKILL_DIR="$HOME/.claude/skills/orquestrar"
+  mkdir -p "$AGENTS_DIR" "$SKILL_DIR"
+  for f in "$REPO_DIR"/claude/agents/*.md; do
+    install_item "$f" "$AGENTS_DIR/$(basename "$f")"
+  done
+  install_item "$REPO_DIR/claude/skills/orquestrar/SKILL.md" "$SKILL_DIR/SKILL.md"
+fi
+
+# Slots do pipeline: o Ollama roda como serviço (systemd/launchd), então as variáveis
+# precisam ir para o serviço. Só mostramos o comando, sem sudo automático.
+step "Variáveis OLLAMA_* (slots = $PARALLEL)"
+if [ "${OLLAMA_NUM_PARALLEL:-}" = "$PARALLEL" ]; then
+  ok "OLLAMA_NUM_PARALLEL=$PARALLEL neste shell"
+else
+  warn "aplique no serviço do Ollama e reinicie-o:"
+  if command -v systemctl >/dev/null 2>&1; then
+    echo "    sudo systemctl edit ollama    # cole em [Service]:"
+    echo "      Environment=\"OLLAMA_NUM_PARALLEL=$PARALLEL\""
+    echo "      Environment=\"OLLAMA_MAX_LOADED_MODELS=1\""
+    echo "      Environment=\"OLLAMA_FLASH_ATTENTION=1\""
+    echo "      Environment=\"OLLAMA_KV_CACHE_TYPE=q8_0\""
+    echo "    sudo systemctl restart ollama"
+  else
+    echo "    launchctl setenv OLLAMA_NUM_PARALLEL $PARALLEL"
+    echo "    launchctl setenv OLLAMA_MAX_LOADED_MODELS 1"
+    echo "    launchctl setenv OLLAMA_FLASH_ATTENTION 1"
+    echo "    launchctl setenv OLLAMA_KV_CACHE_TYPE q8_0"
+    echo "    # depois feche e abra o app do Ollama"
+  fi
+fi
+
 step "Pronto"
 echo "  1. Reinicie o OpenCode:  opencode service restart"
 echo "  2. Escolha o modelo do orquestrador com /models"
 echo "  3. Valide o ambiente:    ./verify.sh"
 echo ""
 echo "  Se os subagentes já estavam rodando, o Ollama vai recarregar o modelo no próximo uso."
+[ "$SKIP_CLAUDE" -eq 0 ] && echo "  Claude Code: abra uma sessão nova e use /orquestrar <pedido>."
+exit 0
