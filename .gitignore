@@ -1,0 +1,7 @@
+# Credenciais e arquivos de sessão do opencode — NUNCA commitar.
+*accounts*.json
+*.local.json
+secrets*
+
+# Sistema
+.DS_Store
