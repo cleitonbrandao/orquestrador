@@ -1,4 +1,4 @@
-# dotfiles — opencode
+# orquestrador — opencode
 
 Configuração global do [opencode](https://opencode.ai) replicável em qualquer máquina.
 Cobre a **camada global** (`~/.config/opencode/opencode.json`): plugin de auth e definições
@@ -9,7 +9,7 @@ e não precisa deste repo.
 ## Estrutura
 
 ```
-dotfiles/
+orquestrador/
 ├── install.sh               # cria o symlink da config global (idempotente, com backup)
 ├── .gitignore               # bloqueia credenciais (*accounts*.json etc.)
 └── opencode/
@@ -27,8 +27,8 @@ ollama pull qwen2.5-coder:7b                    # modelo do local-helper
 npm i -g @trailhq/trail-code                    # MCP trail (usado por projetos indexados)
 
 # 2. Este repo
-git clone git@github.com:cleitonbrandao/dotfiles.git ~/Documentos/projetos/dotfiles
-cd ~/Documentos/projetos/dotfiles
+git clone https://github.com/cleitonbrandao/orquestrador.git ~/Documentos/projetos/orquestrador
+cd ~/Documentos/projetos/orquestrador
 ./install.sh
 
 # 3. Login dos providers (por máquina, dentro do opencode) — tokens NUNCA são commitados
