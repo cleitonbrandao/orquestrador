@@ -1,7 +1,19 @@
-# Credenciais e arquivos de sessão do opencode — NUNCA commitar.
+# Credenciais e artefatos locais — nunca versionar
 *accounts*.json
+*credentials*.json
+*secrets*
 *.local.json
-secrets*
+*.key
+*.pem
+.env
+.env.*
+
+# Backups gerados pelo instalador
+*.bak
+*.bak.*
+opencode.json.backup*
 
 # Sistema
 .DS_Store
+Thumbs.db
+desktop.ini

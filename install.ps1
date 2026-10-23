@@ -1,0 +1,175 @@
+﻿#Requires -Version 5.1
+<#
+.SYNOPSIS
+    Instala a configuração global de orquestração do OpenCode (Windows).
+
+.DESCRIPTION
+    Copia opencode/opencode.json para %USERPROFILE%\.config\opencode\opencode.json,
+    com backup do arquivo atual, e garante o modelo derivado do Ollama
+    (qwen3-16k = qwen3:8b + num_ctx 16384).
+
+.PARAMETER BaseModel
+    Modelo base do Ollama usado para derivar o modelo dos subagentes. Padrão: qwen3:8b
+
+.PARAMETER Context
+    Valor de num_ctx do modelo derivado. Padrão: 16384
+
+.PARAMETER SkipModel
+    Não mexe no Ollama (a config é instalada do mesmo jeito).
+
+.PARAMETER Link
+    Tenta criar symlink em vez de copiar (exige modo Desenvolvedor ou admin).
+
+.PARAMETER Force
+    Recria o modelo derivado mesmo que já exista.
+
+.EXAMPLE
+    .\install.ps1
+    .\install.ps1 -Context 8192 -Force
+    .\install.ps1 -SkipModel
+#>
+[CmdletBinding()]
+param(
+    [string]$BaseModel = "qwen3:8b",
+    [int]$Context = 16384,
+    [switch]$SkipModel,
+    [switch]$Link,
+    [switch]$Force
+)
+
+$ErrorActionPreference = "Stop"
+try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }
+$ModelName = "qwen3-16k"
+
+function Write-Step { param($m) Write-Host ""; Write-Host "==> $m" -ForegroundColor Cyan }
+function Write-Ok   { param($m) Write-Host "  ok  $m" -ForegroundColor Green }
+function Write-Warn2 { param($m) Write-Host "  !   $m" -ForegroundColor Yellow }
+function Write-Fail { param($m) Write-Host "  x   $m" -ForegroundColor Red }
+
+$RepoDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Source  = Join-Path $RepoDir "opencode\opencode.json"
+
+Write-Step "Verificando o repositório"
+if (-not (Test-Path -LiteralPath $Source)) {
+    Write-Fail "config não encontrada: $Source"
+    Write-Host "  Rode este script de dentro do repositório clonado."
+    exit 1
+}
+Write-Ok "config: $Source"
+
+Write-Step "Verificando pré-requisitos"
+$missing = @()
+foreach ($cmd in @("opencode", "ollama")) {
+    if (Get-Command $cmd -ErrorAction SilentlyContinue) {
+        Write-Ok ("{0}: {1}" -f $cmd, ((& $cmd --version 2>&1 | Select-Object -First 1) -join ""))
+    } else {
+        Write-Fail "$cmd não encontrado no PATH"
+        $missing += $cmd
+    }
+}
+if ($missing.Count -gt 0) {
+    Write-Host ""
+    Write-Host "Instale antes de continuar:"
+    if ($missing -contains "opencode") { Write-Host "  npm install -g @opencode/cli    # ou o instalador oficial" }
+    if ($missing -contains "ollama")   { Write-Host "  https://ollama.com/download" }
+    exit 1
+}
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+    Write-Warn2 "node não encontrado (só é necessário se o OpenCode foi instalado via npm)"
+}
+
+Write-Step "Instalando a configuração global"
+$ConfigDir = Join-Path $env:USERPROFILE ".config\opencode"
+$Target    = Join-Path $ConfigDir "opencode.json"
+if (-not (Test-Path -LiteralPath $ConfigDir)) {
+    New-Item -ItemType Directory -Path $ConfigDir -Force | Out-Null
+}
+
+$Backup = ""
+if (Test-Path -LiteralPath $Target) {
+    $Backup = "{0}.bak.{1}" -f $Target, (Get-Date -Format "yyyyMMdd-HHmmss")
+    Copy-Item -LiteralPath $Target -Destination $Backup -Force
+    Write-Ok "backup do config atual: $Backup"
+}
+
+$linked = $false
+if ($Link) {
+    try {
+        if (Test-Path -LiteralPath $Target) { Remove-Item -LiteralPath $Target -Force }
+        New-Item -ItemType SymbolicLink -Path $Target -Target $Source -ErrorAction Stop | Out-Null
+        Write-Ok "symlink: $Target -> $Source"
+        $linked = $true
+    } catch {
+        Write-Warn2 "symlink falhou ($($_.Exception.Message)); usando cópia"
+    }
+}
+if (-not $linked) {
+    Copy-Item -LiteralPath $Source -Destination $Target -Force
+    Write-Ok "config copiada: $Target"
+}
+
+# valida o JSON recém-instalado
+try {
+    $cfg = Get-Content -LiteralPath $Target -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not $cfg.agents) { throw "bloco 'agents' ausente" }
+    $names = @($cfg.agents.PSObject.Properties.Name)
+    Write-Ok ("JSON válido, agentes: {0}" -f ($names -join ", "))
+} catch {
+    Write-Fail "o config instalado não é um JSON válido: $($_.Exception.Message)"
+    if ($Backup -and (Test-Path -LiteralPath $Backup)) {
+        Copy-Item -LiteralPath $Backup -Destination $Target -Force
+        Write-Warn2 "config anterior restaurado de $Backup"
+    }
+    exit 1
+}
+
+if ($SkipModel) {
+    Write-Step "Ollama: ignorado (-SkipModel)"
+    Write-Warn2 "os subagentes esperam o modelo '$ModelName' já existente"
+} else {
+    Write-Step "Garantindo o modelo local '$ModelName' (ctx $Context)"
+    $list = (& ollama list 2>&1 | Out-String)
+    $prefix = "(?m)^\s*"
+    $exists = $list -match ($prefix + [regex]::Escape($ModelName))
+
+    if ($exists -and -not $Force) {
+        Write-Ok "modelo '$ModelName' já existe (use -Force para recriar)"
+    } elseif ($list -notmatch ($prefix + [regex]::Escape($BaseModel))) {
+        Write-Warn2 "modelo base '$BaseModel' não encontrado no Ollama"
+        Write-Host "  1) ollama pull $BaseModel"
+        Write-Host "  2) .\install.ps1            # cria o $ModelName"
+        Write-Host "  (a configuração do OpenCode já foi instalada)"
+    } else {
+        $mf = Join-Path $env:TEMP ("Modelfile-orquestrador-{0}" -f (Get-Random))
+        "FROM $BaseModel`nPARAMETER num_ctx $Context" | Out-File -LiteralPath $mf -Encoding ascii
+        try {
+            & ollama create $ModelName -f $mf | Out-Host
+            if ($LASTEXITCODE -ne 0) { throw "ollama create retornou $LASTEXITCODE" }
+            Remove-Item -LiteralPath $mf -Force -ErrorAction SilentlyContinue
+            Write-Ok "modelo '$ModelName' criado com num_ctx $Context"
+        } catch {
+            Remove-Item -LiteralPath $mf -Force -ErrorAction SilentlyContinue
+            Write-Fail "falha ao criar o modelo: $($_.Exception.Message)"
+            Write-Host "  Crie manualmente:"
+            Write-Host "    FROM $BaseModel"
+            Write-Host "    PARAMETER num_ctx $Context"
+            Write-Host "    ollama create $ModelName -f <arquivo>"
+            exit 1
+        }
+    }
+}
+
+Write-Step "Checando a variável OPENCODE_CONFIG_CONTENT"
+if ($env:OPENCODE_CONFIG_CONTENT) {
+    Write-Warn2 "OPENCODE_CONFIG_CONTENT está definida ($($env:OPENCODE_CONFIG_CONTENT.Length) chars) e sobrepõe o arquivo"
+    Write-Warn2 "antes de reiniciar, rode: Remove-Item Env:OPENCODE_CONFIG_CONTENT"
+} else {
+    Write-Ok "variável ausente (o arquivo é a fonte de verdade)"
+}
+
+Write-Step "Pronto"
+Write-Host "  1. Reinicie o OpenCode:  opencode service restart"
+Write-Host "  2. Escolha o modelo do orquestrador com /models"
+Write-Host "  3. Valide o ambiente:    .\verify.ps1"
+Write-Host ""
+Write-Host "  Se os subagentes já estavam rodando, o Ollama vai recarregar o modelo no próximo uso."

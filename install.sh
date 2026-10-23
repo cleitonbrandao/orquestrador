@@ -1,65 +1,176 @@
 #!/usr/bin/env bash
-# Instala a config global do opencode (~/.config/opencode/opencode.json) via symlink
-# para este repositório. Idempotente: pode rodar quantas vezes quiser.
+# Instala a configuração global de orquestração do OpenCode (Linux/macOS).
+#
+# Copia opencode/opencode.json para ${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json
+# com backup do arquivo atual, e garante o modelo derivado do Ollama
+# (qwen3-16k = qwen3:8b + num_ctx 16384).
 set -euo pipefail
 
-DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SOURCE="$DOTFILES_DIR/opencode/opencode.json"
-TARGET_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
-TARGET="$TARGET_DIR/opencode.json"
+BASE_MODEL="qwen3:8b"
+CONTEXT=16384
+MODEL_NAME="qwen3-16k"
+SKIP_MODEL=0
+LINK=0
+FORCE=0
 
-if [ ! -f "$SOURCE" ]; then
-    echo "ERRO: $SOURCE não encontrado." >&2
-    exit 1
-fi
+usage() {
+  cat <<EOF
+Uso: ./install.sh [opções]
 
-mkdir -p "$TARGET_DIR"
-
-# Preserva config existente (não-symlink) antes de sobrescrever.
-if [ -e "$TARGET" ] && [ ! -L "$TARGET" ]; then
-    BACKUP="$TARGET.bak.$(date +%Y%m%d%H%M%S)"
-    cp "$TARGET" "$BACKUP"
-    echo "Backup da config atual: $BACKUP"
-fi
-
-ln -sfn "$SOURCE" "$TARGET"
-echo "Symlink criado: $TARGET -> $SOURCE"
-echo
-
-# Verifica pré-requisitos (não instala nada sozinho).
-missing=0
-check() {
-    if command -v "$1" >/dev/null 2>&1; then
-        echo "ok:       $1"
-    else
-        echo "FALTANDO: $1"
-        missing=1
-    fi
+  --model <modelo>   modelo base do Ollama (padrão: $BASE_MODEL)
+  --ctx <n>          num_ctx do modelo derivado (padrão: $CONTEXT)
+  --no-model         não mexe no Ollama
+  --link             cria symlink em vez de copiar (recomendado para editar no repo)
+  --force            recria o modelo derivado mesmo que já exista
+  -h, --help         esta ajuda
+EOF
 }
 
-check opencode
-check ollama
-check node
-check trail
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --model)    BASE_MODEL="${2:?--model exige um valor}"; shift 2 ;;
+    --ctx)      CONTEXT="${2:?--ctx exige um valor}"; shift 2 ;;
+    --no-model) SKIP_MODEL=1; shift ;;
+    --link)     LINK=1; shift ;;
+    --force)    FORCE=1; shift ;;
+    -h|--help)  usage; exit 0 ;;
+    *) echo "Opção desconhecida: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
 
-echo
-if [ "$missing" -eq 1 ]; then
-    cat <<'EOF'
-Instale o que estiver faltando:
-  opencode : curl -fsSL https://opencode.ai/install | bash
-  ollama   : https://ollama.com/download  (depois: ollama pull qwen2.5-coder:7b)
-  node     : https://nodejs.org  (necessário para o trail CLI)
-  trail    : npm i -g @trailhq/trail-code
-EOF
-    echo
+step()  { printf '\n\033[36m==> %s\033[0m\n' "$1"; }
+ok()    { printf '  \033[32mok\033[0m  %s\n' "$1"; }
+warn()  { printf '  \033[33m!\033[0m   %s\n' "$1"; }
+fail()  { printf '  \033[31mx\033[0m   %s\n' "$1" >&2; }
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOURCE="$REPO_DIR/opencode/opencode.json"
+
+step "Verificando o repositório"
+if [ ! -f "$SOURCE" ]; then
+  fail "config não encontrada: $SOURCE"
+  echo "  Rode este script de dentro do repositório clonado." >&2
+  exit 1
+fi
+ok "config: $SOURCE"
+
+step "Verificando pré-requisitos"
+missing=0
+for cmd in opencode ollama; do
+  if command -v "$cmd" >/dev/null 2>&1; then
+    ok "$cmd: $("$cmd" --version 2>&1 | head -n 1)"
+  else
+    fail "$cmd não encontrado no PATH"
+    missing=1
+  fi
+done
+if [ "$missing" -ne 0 ]; then
+  echo "" >&2
+  echo "Instale antes de continuar:" >&2
+  echo "  opencode: https://opencode.ai/docs (ou npm install -g @opencode/cli)" >&2
+  echo "  ollama:   https://ollama.com/download" >&2
+  exit 1
+fi
+command -v node >/dev/null 2>&1 || warn "node não encontrado (só é necessário se o OpenCode foi instalado via npm)"
+
+step "Instalando a configuração global"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+TARGET="$CONFIG_DIR/opencode.json"
+mkdir -p "$CONFIG_DIR"
+
+BACKUP=""
+if [ -f "$TARGET" ]; then
+  BACKUP="$TARGET.bak.$(date +%Y%m%d-%H%M%S)"
+  cp -p "$TARGET" "$BACKUP"
+  ok "backup do config atual: $BACKUP"
 fi
 
-cat <<'EOF'
-Próximos passos manuais:
-  1. Faça o login dos providers dentro do opencode (tokens ficam em
-     ~/.config/opencode/*.json e NUNCA vão para este repo).
-  2. Se for usar os modelos locais: ollama pull qwen2.5-coder:7b
-  3. (Opcional) Copie as variáveis de opencode/env.example para o ~/.zshrc
-     para trocar os modelos locais sem editar JSON.
-  4. Reinicie o opencode — config não tem hot-reload.
-EOF
+if [ "$LINK" -eq 1 ]; then
+  rm -f "$TARGET"
+  if ln -s "$SOURCE" "$TARGET" 2>/dev/null; then
+    ok "symlink: $TARGET -> $SOURCE"
+  else
+    warn "symlink falhou; usando cópia"
+    cp "$SOURCE" "$TARGET"
+    ok "config copiada: $TARGET"
+  fi
+else
+  cp "$SOURCE" "$TARGET"
+  ok "config copiada: $TARGET"
+fi
+
+# valida o JSON recém-instalado
+valid=0
+if command -v node >/dev/null 2>&1; then
+  if node -e 'const c=require(process.argv[1]);if(!c.agents)process.exit(1);console.log("  ok  JSON válido, agentes: "+Object.keys(c.agents).join(", "))' "$TARGET"; then
+    valid=1
+  fi
+elif command -v python3 >/dev/null 2>&1; then
+  if python3 - "$TARGET" <<'PY'
+import json, sys
+cfg = json.load(open(sys.argv[1], encoding="utf-8"))
+assert cfg.get("agents"), "bloco 'agents' ausente"
+print("  ok  JSON válido, agentes: " + ", ".join(cfg["agents"].keys()))
+PY
+  then
+    valid=1
+  fi
+else
+  warn "nem node nem python3 disponíveis para validar o JSON"
+  valid=1
+fi
+
+if [ "$valid" -eq 0 ]; then
+  fail "o config instalado não é um JSON válido"
+  if [ -n "$BACKUP" ]; then
+    cp "$BACKUP" "$TARGET"
+    warn "config anterior restaurado de $BACKUP"
+  fi
+  exit 1
+fi
+
+if [ "$SKIP_MODEL" -eq 1 ]; then
+  step "Ollama: ignorado (--no-model)"
+  warn "os subagentes esperam o modelo '$MODEL_NAME' já existente"
+else
+  step "Garantindo o modelo local '$MODEL_NAME' (ctx $CONTEXT)"
+  list="$(ollama list 2>&1 || true)"
+  if printf '%s\n' "$list" | awk '{print $1}' | grep -qx "$MODEL_NAME\(:latest\)\?" && [ "$FORCE" -eq 0 ]; then
+    ok "modelo '$MODEL_NAME' já existe (use --force para recriar)"
+  elif ! printf '%s\n' "$list" | awk '{print $1}' | grep -qx "$BASE_MODEL\(:latest\)\?"; then
+    warn "modelo base '$BASE_MODEL' não encontrado no Ollama"
+    echo "  1) ollama pull $BASE_MODEL"
+    echo "  2) ./install.sh            # cria o $MODEL_NAME"
+    echo "  (a configuração do OpenCode já foi instalada)"
+  else
+    mf="$(mktemp)"
+    printf 'FROM %s\nPARAMETER num_ctx %s\n' "$BASE_MODEL" "$CONTEXT" > "$mf"
+    if ollama create "$MODEL_NAME" -f "$mf"; then
+      rm -f "$mf"
+      ok "modelo '$MODEL_NAME' criado com num_ctx $CONTEXT"
+    else
+      rm -f "$mf"
+      fail "falha ao criar o modelo"
+      echo "  Crie manualmente:" >&2
+      echo "    FROM $BASE_MODEL" >&2
+      echo "    PARAMETER num_ctx $CONTEXT" >&2
+      echo "    ollama create $MODEL_NAME -f <arquivo>" >&2
+      exit 1
+    fi
+  fi
+fi
+
+step "Checando a variável OPENCODE_CONFIG_CONTENT"
+if [ -n "${OPENCODE_CONFIG_CONTENT:-}" ]; then
+  warn "OPENCODE_CONFIG_CONTENT está definida (${#OPENCODE_CONFIG_CONTENT} chars) e sobrepõe o arquivo"
+  warn "antes de reiniciar, rode: unset OPENCODE_CONFIG_CONTENT"
+else
+  ok "variável ausente (o arquivo é a fonte de verdade)"
+fi
+
+step "Pronto"
+echo "  1. Reinicie o OpenCode:  opencode service restart"
+echo "  2. Escolha o modelo do orquestrador com /models"
+echo "  3. Valide o ambiente:    ./verify.sh"
+echo ""
+echo "  Se os subagentes já estavam rodando, o Ollama vai recarregar o modelo no próximo uso."

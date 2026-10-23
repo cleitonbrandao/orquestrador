@@ -2,80 +2,116 @@
   "$schema": "https://opencode.ai/config.json",
   "plugin": ["opencode-antigravity-auth@latest"],
   "default_agent": "orquestrador",
+
   "provider": {
     "google": {
+      "npm": "@ai-sdk/google",
       "models": {
-        "gemini-3-pro": {
-          "name": "Gemini 3 Pro",
-          "limit": { "context": 1048576, "output": 65535 },
-          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+        "antigravity-gemini-3-pro": {
+          "name": "Gemini 3 Pro - Orquestrador",
+          "limit": {
+            "context": 1048576,
+            "output": 65535
+          },
+          "modalities": {
+            "input": ["text", "image", "pdf"],
+            "output": ["text"]
+          },
           "variants": {
-            "low": { "thinkingLevel": "low" },
-            "high": { "thinkingLevel": "high" }
+            "low": {
+              "thinkingLevel": "low"
+            },
+            "high": {
+              "thinkingLevel": "high"
+            }
           }
         },
-        "gemini-3-flash": {
+        "antigravity-gemini-3-flash": {
           "name": "Gemini 3 Flash",
-          "limit": { "context": 1048576, "output": 65536 },
-          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "limit": {
+            "context": 1048576,
+            "output": 65536
+          },
+          "modalities": {
+            "input": ["text", "image", "pdf"],
+            "output": ["text"]
+          },
           "variants": {
-            "minimal": { "thinkingLevel": "minimal" },
-            "low": { "thinkingLevel": "low" },
-            "medium": { "thinkingLevel": "medium" },
-            "high": { "thinkingLevel": "high" }
+            "minimal": {
+              "thinkingLevel": "minimal"
+            },
+            "low": {
+              "thinkingLevel": "low"
+            },
+            "medium": {
+              "thinkingLevel": "medium"
+            },
+            "high": {
+              "thinkingLevel": "high"
+            }
           }
         },
-        "gemini-2.5-pro": {
-          "name": "Gemini 2.5 Pro",
-          "limit": { "context": 1048576, "output": 65536 },
-          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
-        },
-        "gemini-2.5-flash": {
-          "name": "Gemini 2.5 Flash",
-          "limit": { "context": 1048576, "output": 65536 },
-          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
-        },
-        "claude-sonnet-4-5": {
+        "antigravity-claude-sonnet-4-5": {
           "name": "Claude Sonnet 4.5",
-          "limit": { "context": 200000, "output": 64000 },
-          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] }
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          },
+          "modalities": {
+            "input": ["text", "image", "pdf"],
+            "output": ["text"]
+          }
         },
-        "claude-sonnet-4-5-thinking": {
+        "antigravity-claude-sonnet-4-5-thinking": {
           "name": "Claude Sonnet 4.5 Thinking",
-          "limit": { "context": 200000, "output": 64000 },
-          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          },
+          "modalities": {
+            "input": ["text", "image", "pdf"],
+            "output": ["text"]
+          },
           "variants": {
-            "low": { "thinkingConfig": { "thinkingBudget": 8192 } },
-            "max": { "thinkingConfig": { "thinkingBudget": 32768 } }
+            "low": {
+              "thinkingConfig": {
+                "thinkingBudget": 8192
+              }
+            },
+            "max": {
+              "thinkingConfig": {
+                "thinkingBudget": 32768
+              }
+            }
           }
         },
-        "claude-opus-4-5-thinking": {
+        "antigravity-claude-opus-4-5-thinking": {
           "name": "Claude Opus 4.5 Thinking",
-          "limit": { "context": 200000, "output": 64000 },
-          "modalities": { "input": ["text", "image", "pdf"], "output": ["text"] },
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          },
+          "modalities": {
+            "input": ["text", "image", "pdf"],
+            "output": ["text"]
+          },
           "variants": {
-            "low": { "thinkingConfig": { "thinkingBudget": 8192 } },
-            "max": { "thinkingConfig": { "thinkingBudget": 32768 } }
+            "low": {
+              "thinkingConfig": {
+                "thinkingBudget": 8192
+              }
+            },
+            "max": {
+              "thinkingConfig": {
+                "thinkingBudget": 32768
+              }
+            }
           }
-        }
-      }
-    },
-    "ollama": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Ollama Local",
-      "options": {
-        "baseURL": "http://127.0.0.1:11434/v1"
-      },
-      "models": {
-        "qwen2.5-coder:7b": {
-          "name": "Qwen Coder 7B"
-        },
-        "qwen3.5:2b": {
-          "name": "Qwen Local 2B"
         }
       }
     }
   },
+
   "mcp": {
     "trail": {
       "type": "local",
@@ -83,38 +119,257 @@
       "enabled": false
     }
   },
-  "agent": {
+
+  "agents": {
     "orquestrador": {
       "mode": "primary",
-      "description": "Agente principal que delega tarefas simples para a IA local (funciona em qualquer repositório).",
-      "prompt": "Você é um orquestrador de desenvolvimento de software. Delegue tarefas pequenas, isoladas, de leitura e análise simples ao subagente local-helper. Execute testes usando comandos locais, sem pedir a um modelo para simular sua execução. Reserve seu próprio raciocínio para arquitetura, mudanças complexas, segurança, integração e problemas difíceis. Delegue usando a ferramenta Task quando apropriado. Forneça contexto mínimo, incluindo somente os trechos relevantes. Não delegue uma tarefa se o custo da delegação provavelmente superar o benefício. Revise resultados críticos. Nunca afirme que um teste passou sem executá-lo. Ao usar a ferramenta Task, use o subagent_type exatamente igual ao identificador do subagente local-helper, com o caractere de hífen. Ao delegar, inclua no prompt da Task os trechos de código relevantes, pois o subagente local não consegue executar ferramentas para ler arquivos.",
-      "permission": {
-        "task": {
-          "local-helper": "allow"
+      "description": "Agente principal de desenvolvimento. Usa modelo externo para arquitetura e implementação complexa e delega análises simples e testes para modelos locais.",
+      "system": "Você é um engenheiro de software sênior e orquestrador de desenvolvimento, especializado em Laravel, PHP, Livewire, SQL, testes automatizados e SaaS multi-tenant. Use seu modelo principal para arquitetura, implementação complexa, segurança, integração entre múltiplos arquivos e decisões técnicas difíceis. Delegue leitura e análise de trechos pequenos ao subagente local-helper. Delegue execução e investigação de testes ao subagente qwen-testes quando apropriado. Use a ferramenta Task e o identificador exato do subagente. Inclua no prompt da delegação os trechos de código, erros e contexto necessários. Não peça ao modelo local para simular execução de comandos. Para tarefas simples, prefira o modelo local quando isso reduzir custo e latência. Para tarefas complexas, insuficientemente contextualizadas ou críticas, trabalhe diretamente. Revise os resultados dos subagentes. Nunca afirme que testes passaram sem executar os comandos e verificar a saída real. Preserve as regras de negócio, autorização, isolamento por team_id e padrões existentes do projeto.",
+      "permissions": [
+        {
+          "action": "subagent",
+          "resource": "local-helper",
+          "effect": "allow"
         },
-        "bash": "ask",
-        "edit": "ask"
-      }
+        {
+          "action": "subagent",
+          "resource": "qwen-testes",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "*",
+          "effect": "ask"
+        },
+        {
+          "action": "edit",
+          "resource": "*",
+          "effect": "ask"
+        }
+      ]
     },
+
     "local-helper": {
       "mode": "subagent",
-      "model": "{env:LOCAL_HELPER_MODEL:-ollama/qwen2.5-coder:7b}",
-      "description": "Analisa funções pequenas, explica código, identifica problemas simples e propõe testes unitários isolados usando Ollama local (qualquer linguagem). Não altera arquivos.",
-      "prompt": "Você é um assistente local especializado em leitura e análise de código. Resolva somente tarefas pequenas e bem delimitadas. Seja objetivo. Evite explorar o projeto inteiro. Explique métodos, analise pequenos trechos e proponha casos de teste. Não modifique arquivos. Não invente resultados de execução. Quando a tarefa exigir arquitetura, segurança complexa, múltiplos arquivos ou contexto insuficiente, informe a limitação ao agente principal.",
-      "permission": {
-        "edit": "deny",
-        "bash": "deny"
-      }
+      "model": "ollama/qwen3-16k:latest",
+      "description": "Agente local para leitura de código, explicações, análise de funções e sugestões de testes. Não altera arquivos.",
+      "system": "Você analisa código. Use a ferramenta read para abrir os arquivos citados na tarefa e a glob para listar diretórios. Leia somente os arquivos necessários, no máximo 3 por tarefa. Responda em português, de forma curta e técnica: o que o código faz, riscos e sugestões de teste. Nunca invente conteúdo de arquivo: se o read falhar ou o arquivo não existir, diga exatamente isso e pare. Não altere arquivos, não execute comandos e não use subagentes. Se a tarefa exigir mudanças em vários arquivos, arquitetura ou segurança, responda que o orquestrador deve assumir.",
+      "permissions": [
+        {
+          "action": "edit",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "execute",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "subagent",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "browser",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "question",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "webfetch",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "websearch",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "glob",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "grep",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "external_directory",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env.*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*id_rsa*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.pem",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.key",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env.example",
+          "effect": "allow"
+        }
+      ]
     },
+
     "qwen-testes": {
-      "mode": "primary",
-      "model": "{env:QWEN_TESTES_MODEL:-ollama/qwen2.5-coder:7b}",
-      "description": "Agente local para executar testes, investigar falhas e validar correções (funciona em qualquer repositório).",
-      "prompt": "Você é um agente de desenvolvimento focado em testes, executado localmente pelo Ollama. Trabalhe no projeto e na conversa atual. Primeiro verifique o estado do código, os testes relevantes e o ambiente de execução. Execute testes reais usando os comandos do projeto (por exemplo php artisan test, ./vendor/bin/phpunit, npm test, pytest), conforme aplicável. Analise erros com base na saída real, identifique causas prováveis e proponha correções pequenas. Antes de alterar arquivos, explique a mudança ou solicite aprovação quando necessário. Nunca invente resultados nem afirme que testes passaram sem executá-los. Ao concluir, informe os comandos executados, testes aprovados, testes falhos e pendências.",
-      "permission": {
-        "bash": "ask",
-        "edit": "ask"
-      }
+      "mode": "subagent",
+      "model": "ollama/qwen3-16k:latest",
+      "description": "Agente local de testes. Executa comandos reais, investiga falhas e retorna evidências ao orquestrador, sem modificar arquivos.",
+      "system": "Você é um executor de comandos. Rode exatamente o comando pedido, uma vez, com a ferramenta shell. Nunca faça perguntas. Nunca altere nem substitua o comando. Copie a saída literal, sem resumir. Responda apenas três linhas:\nCOMANDO: <comando literal>\nSAIDA: <saída literal>\nRESULTADO: <passou|falhou|bloqueado>\nUse passou somente se a saída contiver 'OK ('. Use falhou somente se contiver 'FAILURES!' ou 'ERRORS!'. Em qualquer outro caso use bloqueado. Nunca invente contagem ou nome de teste que não esteja na saída.",
+      "permissions": [
+        {
+          "action": "edit",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "*",
+          "effect": "ask"
+        },
+        {
+          "action": "execute",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "browser",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "subagent",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "question",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "webfetch",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "websearch",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "glob",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "grep",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "external_directory",
+          "resource": "*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "composer *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "npm *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "php artisan migrate*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "php artisan db:*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "docker *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "Remove-Item *",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "rm *",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env.*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*id_rsa*",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.pem",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.key",
+          "effect": "deny"
+        },
+        {
+          "action": "read",
+          "resource": "*.env.example",
+          "effect": "allow"
+        }
+      ]
     }
   }
 }
