@@ -259,6 +259,22 @@ if ($SkipClaude) {
     Install-Item -From (Join-Path $RepoDir "claude\skills\orquestrar\SKILL.md") -To (Join-Path $SkillDir "SKILL.md")
 }
 
+# Verificadores por regra e redator de docs: usados pelo Claude Code e pelo OpenCode.
+Write-Step "Instalando os scripts em ~/.orquestrador/scripts"
+$ScriptsDir = Join-Path $env:USERPROFILE ".orquestrador\scripts"
+if (-not (Test-Path -LiteralPath $ScriptsDir)) { New-Item -ItemType Directory -Path $ScriptsDir -Force | Out-Null }
+Get-ChildItem -LiteralPath (Join-Path $RepoDir "scripts") -File |
+    Where-Object { @(".sh", ".ps1", ".py") -contains $_.Extension } |
+    ForEach-Object { Install-Item -From $_.FullName -To (Join-Path $ScriptsDir $_.Name) }
+# "python" pode ser o atalho da Microsoft Store, que não roda nada: confere a versão
+$pyVer = ""
+if (Get-Command python -ErrorAction SilentlyContinue) { $pyVer = ((& python --version 2>&1) -join "") }
+if ($pyVer -match "Python 3") {
+    Write-Ok "python: $pyVer"
+} else {
+    Write-Warn2 "Python 3 não encontrado: o redator de docs e o verificador de docs não rodam (a rota docs cai no exec-docs)"
+}
+
 Write-Step "Pronto"
 Write-Host "  1. Reinicie o OpenCode:  opencode service restart"
 Write-Host "  2. Escolha o modelo do orquestrador com /models"

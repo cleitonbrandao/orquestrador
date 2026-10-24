@@ -4,19 +4,22 @@ Documento do **porquê** de cada escolha, com a evidência que sustentou a decis
 
 ## Visão geral
 
-Oito agentes em um pipeline **decompor → executar em slots → testar → integrar**
+Nove agentes em um pipeline **triar → decompor → executar em slots → verificar → integrar**
 (esboço original em [`esboco_possivel_estrutura.png`](esboco_possivel_estrutura.png)):
 
 ```
-pedido ─► orquestrador ─► decompositor ─► PLANO (T1..Tn, area, rota, arquivos, teste)
+pedido ─► orquestrador ─► triagem por regra (Decisão 15)
+              │              só Markdown → rota=docs sem decompositor · ≤ 2 arquivos → direto
+              ├─► decompositor ─► PLANO (T1..Tn, area, rota, arquivos, teste)
               │
               │  no máximo SLOTS=2 Task por mensagem, só tarefas com dependências prontas
               ├─► rota=edicao ─► exec-backend | exec-dados | exec-frontend | executor
               │                      │ edita só os arquivos da tarefa
-              │                      └─► qwen-testes (subagente aninhado) ─► passou?
+              │                      └─► qwen-testes (aninhado) ─► verificar.ps1|.sh ─► passou?
               │                             falhou ─► volta ao mesmo executor (≤ 2x) ─► bloqueado
+              ├─► rota=docs ───► exec-docs (local) ─► qwen-testes ─► verificar_docs.py (Decisão 16)
               ├─► rota=leve ───► local-helper (só leitura)
-              └─► integração: confere arquivos alterados + qwen-testes no teste do conjunto
+              └─► integração: confere arquivos alterados + verificador no teste do conjunto
 ```
 
 | Agente | Modo | Modelo | Ferramentas |
@@ -24,8 +27,9 @@ pedido ─► orquestrador ─► decompositor ─► PLANO (T1..Tn, area, rota,
 | `orquestrador` | `primary` | **nenhum** (segue `/models`) | tudo; `shell` e `edit` em `ask` |
 | `decompositor` | `subagent` | nenhum (herda o da sessão) | `read`, `glob`, `grep` |
 | `exec-backend` / `exec-dados` / `exec-frontend` / `executor` | `subagent` | nenhum (herda o da sessão) | `edit`, `read`, `glob`, `grep`; `subagent` só `qwen-testes` |
+| `exec-docs` | `subagent` | `ollama/qwen3-12k:latest` | `edit` só em `*.md`, `read`, `glob` |
 | `local-helper` | `subagent` | `ollama/qwen3-12k:latest` | `read`, `glob` |
-| `qwen-testes` | `subagent` | `ollama/qwen3-12k:latest` | `shell` (ask), `read` |
+| `qwen-testes` | `subagent` | `ollama/qwen3-12k:latest` | `shell` (ask; verificadores em allow), `read` |
 
 O objetivo é econômico: leitura de código e execução de testes são as operações mais
 frequentes e mais mecânicas. Mandá-las para um modelo local de 8B custa US$ 0,00 e
@@ -35,8 +39,14 @@ seguintes.
 
 No Claude Code o mesmo pipeline é a skill `/orquestrar` (`claude/skills/orquestrar`), com
 os agentes em `claude/agents/` (`decompositor`, `exec-*` e `executor` em `sonnet`;
-`testador` em `haiku`). Lá não há modelo local: "leve" é o próprio agente principal ou o
-`Explore`.
+`exec-docs` e `testador` em `haiku`). O Claude Code não aceita modelo do Ollama como
+subagente, então o modelo local entra por script: o agente principal roda o
+`redigir_docs.py` e o `verificar.sh` pela ferramenta Bash. "Leve" é o próprio agente
+principal ou o `Explore`.
+
+A regra geral, das Decisões 14–16: **LLM só onde há texto a produzir** (planejar, editar,
+redigir). Triar, verificar e decidir o veredito são regra, porque custam zero, não
+alucinam e dão o mesmo resultado nos dois clientes.
 
 ## Decisão 1 — `orquestrador` sem modelo fixo
 
@@ -228,21 +238,105 @@ para o modelo de 8B.
 **Decisão:** `qwen-testes` fica no `qwen3-12k` (GPU) e `OLLAMA_MAX_LOADED_MODELS=1`.
 Reavaliar com uma CPU mais rápida ou uma GPU com folga para um segundo modelo.
 
-## Contrato de saída do `qwen-testes`
+## Decisão 14 — Veredito de teste por script, não por modelo
+
+**O que foi feito:** `scripts/verificar.sh` e `scripts/verificar.ps1` (instalados em
+`~/.orquestrador/scripts/`) rodam um comando uma vez e decidem `passou`/`falhou`/`bloqueado`
+por regra (contrato abaixo). No Claude Code, o agente principal roda o `verificar.sh` pela
+ferramenta Bash e o agente `testador` virou fallback. No OpenCode, quem monta o comando do
+verificador é o **executor** (modelo de nuvem); o `qwen-testes` só roda o que recebeu e
+copia a saída. Os comandos dos verificadores estão em `allow` na permissão de `shell` do
+`qwen-testes`.
+
+**Por quê:** o testador fazia trabalho de regex com um modelo. No Claude Code isso era
+uma chamada de agente (cold start, haiku) por tarefa e por retorno, até 3 por tarefa, e
+ocupava slot. O script custa zero, sai na hora e não inventa contagem de teste.
+
+**Evidência (2026-10-24, OpenCode v2.1.3, `qwen3-12k`):**
+
+| Teste | Resultado |
+|---|---|
+| prompt do `qwen-testes` mandando "rode o pedido dentro do verificador" + `rode: git --version` | o 8B **ignorou** e rodou `git --version` direto |
+| executor manda `rode exatamente: powershell ... verificar.ps1 'git --version'` | script rodou (`$HOME` expandido pelo shell do OpenCode); `RESULTADO: bloqueado` do script |
+| mesmo pedido em `opencode run` sem `--auto`, antes do `allow` | `permission requested: shell; auto-rejecting` (`ask` vira rejeição no modo não interativo) |
+| idem, com o `allow` dos verificadores | executou, 102,6 s (carga do modelo + 1 turno) |
+| `python -m unittest discover -s tests` | 23 testes, OK (inclui os casos acima no bash e no PowerShell) |
+
+Conclusão: o modelo pequeno segue "rode exatamente X" (Decisão 10), mas não segue "monte
+X a partir de Y". A montagem fica com o modelo que planeja.
+
+## Decisão 15 — Triagem por regra antes do decompositor
+
+**O que foi feito:** a skill e o `system` do orquestrador começam com uma regra
+objetiva. Se o pedido só altera Markdown, viram tarefas `rota: docs` sem decompositor. Se
+toca até 2 arquivos ou uma só área, o orquestrador trabalha direto. Senão, vai para o
+decompositor.
+
+**Por quê:** antes era "menos de 3 partes independentes", e quem julgava era o próprio
+LLM, depois de já ter lido o pedido inteiro. Uma regra que dá para conferir evita a
+chamada do decompositor (sonnet, que relê o repositório) nos pedidos pequenos, que são a
+maioria. É o mesmo princípio da triagem do gateway do ia_relatorios: decidir a rota por
+regra custa zero e não decide pior que um modelo.
+
+## Decisão 16 — Documentação no modelo local, conferida por regra
+
+**O que foi feito:** nova `rota: docs` / `area: docs` no decompositor.
+- Claude Code: o agente principal roda `scripts/redigir_docs.py`, que manda ao Ollama local
+  só a seção pedida (`--secao`) e os arquivos de contexto, confere a resposta com o
+  `scripts/verificar_docs.py` e reenvia com os motivos (≤ 2x). A proposta vai para um
+  arquivo à parte; o agente principal revisa o diff e aplica. Falhou ou sem Ollama → agente
+  `exec-docs` (haiku).
+- OpenCode: agente `exec-docs` no `qwen3-12k`, com `edit` só em `*.md`; o orquestrador
+  confere com o `verificar_docs.py` pelo `qwen-testes`.
+
+O `verificar_docs.py` acusa link relativo e caminho entre crases que não existem, script
+citado em bloco de código que não existe, `npm run`/`composer` sem o script no
+`package.json`/`composer.json`, seção vazia e marcadores (`TODO`, `TBD`, `FIXME`). Ele só
+conta o que **a mudança introduziu**: problema que já estava no original não reprova.
+
+**Por quê:** docs são texto de um passo sobre fatos dados, o perfil em que um modelo
+local de 4–8B vai bem (no ia_relatorios, o `qwen3.5:4b` passou o relatório de conversão com
+0 problemas em 4 execuções). E saída é o token mais caro de um modelo de nuvem. Editar
+código continua na nuvem: é um loop com ferramentas, onde o modelo pequeno erra (Decisão 4).
+
+**Evidência (2026-10-24, RX 7600, seção `## Verificação` do README deste repo):**
+
+| Rodada | Modelo | Tentativas | Tempo | Resultado |
+|---|---|---|---|---|
+| prompt inicial | `qwen3-12k` | 3 | 88,5 s | `falhou`: trocou `./verify.sh` por um `verificar.sh` na raiz, que não existe; o verificador pegou nas 3 |
+| + "copie sem mudar o que a tarefa não pede" | `qwen3-12k` | 1 | 22–39 s | `passou`, texto correto com crases |
+| idem | `qwen3.5:4b` | 1 | 20–21 s | `passou`, mas sem crases nos caminhos |
+| as duas acima | ambos | — | — | apagavam o `---` que fecha a seção → o recorte passou a deixar o separador fora do trecho enviado |
+
+O caso da primeira rodada é o motivo do verificador existir: o texto estava fluente e
+errado, e só a regra pegou. O padrão continua `qwen3-12k`, que já está instalado e saiu
+melhor; dá para trocar com `ORQ_MODELO_DOCS`.
+
+## Contrato de saída do verificador
 
 ```
 COMANDO: <comando literal>
-SAIDA: <saída literal>
+CODIGO: <código de saída do comando, ou - se recusado>
+SAIDA:
+<últimas 40 linhas da saída literal>
 RESULTADO: <passou|falhou|bloqueado>
 ```
 
-- `passou` **somente** se a saída contiver `OK (` (formato do PHPUnit);
-- `falhou` **somente** se contiver `FAILURES!` ou `ERRORS!`;
-- qualquer outro caso → `bloqueado`.
+- `falhou` se a saída mostrar falha de teste (`FAILURES!`, `ERRORS!`, `N failed`,
+  `FAILED `, `--- FAIL`, `test result: FAILED`), qualquer que seja o código de saída;
+- `passou` **somente** com código 0 **e** testes executados (`OK (N tests`, `N passed`,
+  `OK`, `ok  pacote`, `test result: ok.`, `PASS `);
+- qualquer outro caso → `bloqueado`, inclusive `composer`, `npm`, `npx`, `pnpm`, `yarn`,
+  `docker`, `rm`, `Remove-Item`, `artisan migrate` e `artisan db:`, que o script recusa sem
+  rodar.
 
-Isso impede o clássico "os testes passaram" sem que nenhum teste tenha rodado. Um comando
-que não existe (`./vendor/bin/phpunit` em diretório errado) devolve
-`CommandNotFoundException` e o veredito correto é **`bloqueado`**, não `passou`.
+Código de saída do script: 0 passou, 1 falhou, 2 bloqueado. Isso impede o clássico "os
+testes passaram" sem que nenhum teste tenha rodado. Um comando que não existe
+(`./vendor/bin/phpunit` em diretório errado) termina com erro e sem saída de teste, e o
+veredito correto é **`bloqueado`**, não `passou`.
+
+Sem os scripts instalados, o `qwen-testes` e o `testador` aplicam a regra antiga
+(`passou` só com `OK (`; `falhou` só com `FAILURES!`/`ERRORS!`).
 
 ## Evidências de validação (2026-10-23, OpenCode v2.1.3)
 
@@ -267,6 +361,8 @@ que não existe (`./vendor/bin/phpunit` em diretório errado) devolve
 | `shell: ask` em subagente esperando prompt | não há prompt; executa |
 | 2 slots de 16k na RX 7600 | 8,1 GB, 10% em CPU, 20 tok/s (ver Decisão 11) |
 | `qwen3:4b` na CPU como testador | 388 s por teste no OpenCode (ver Decisão 13) |
+| `qwen-testes` (8B) montando sozinho o comando do verificador | rodou o comando cru (ver Decisão 14) |
+| `shell: ask` em `opencode run` não interativo | rejeição automática; os verificadores precisam de `allow` |
 
 Para reproduzir qualquer um desses sintomas, veja
 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md).

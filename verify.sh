@@ -52,7 +52,7 @@ else
       const ag = Object.keys(c.agents || {});
       console.log("  \x1b[32mok\x1b[0m  JSON válido");
       console.log("  \x1b[32mok\x1b[0m  default_agent: " + (c.default_agent || "(nao definido)"));
-      for (const id of ["orquestrador","decompositor","executor","exec-backend","exec-dados","exec-frontend","local-helper","qwen-testes"])
+      for (const id of ["orquestrador","decompositor","executor","exec-backend","exec-dados","exec-frontend","exec-docs","local-helper","qwen-testes"])
         console.log((ag.includes(id) ? "  \x1b[32mok\x1b[0m  agente presente: " : "  \x1b[31mx\x1b[0m   agente ausente: ") + id);
       if (c.agents && c.agents.orquestrador && c.agents.orquestrador.model)
         console.log("  \x1b[33m!\x1b[0m   orquestrador tem model fixo (" + c.agents.orquestrador.model + "); /models nao governa");
@@ -71,7 +71,7 @@ cfg = json.load(open(sys.argv[1], encoding="utf-8"))
 ag = list((cfg.get("agents") or {}).keys())
 print("  ok  JSON válido")
 print("  ok  default_agent: " + str(cfg.get("default_agent") or "(nao definido)"))
-EXPECTED = ("orquestrador", "decompositor", "executor", "exec-backend", "exec-dados", "exec-frontend", "local-helper", "qwen-testes")
+EXPECTED = ("orquestrador", "decompositor", "executor", "exec-backend", "exec-dados", "exec-frontend", "exec-docs", "local-helper", "qwen-testes")
 for i in EXPECTED:
     print(("  ok  agente presente: " if i in ag else "  x   agente ausente: ") + i)
 orc = (cfg.get("agents") or {}).get("orquestrador") or {}
@@ -155,7 +155,7 @@ if command -v opencode >/dev/null 2>&1; then
             const n = (orc.permissions || []).filter(x => x.action === "subagent" && x.effect === "allow").length;
             console.log("  ok  orquestrador: " + n + " delegacoes permitidas");
             if (n === 0) { console.log("  x   orquestrador: nenhuma delegacao permitida"); fails++; }
-            for (const id of ["decompositor", "executor", "exec-backend", "exec-dados", "exec-frontend"]) {
+            for (const id of ["decompositor", "executor", "exec-backend", "exec-dados", "exec-frontend", "exec-docs"]) {
               if ((orc.permissions || []).some(x => x.action === "subagent" && x.resource === id && x.effect === "allow")) console.log("  ok  orquestrador: pode delegar ao " + id);
               else { console.log("  x   orquestrador: delegacao ao " + id + " nao permitida"); fails++; }
             }
@@ -180,6 +180,20 @@ if command -v opencode >/dev/null 2>&1; then
             const last = subs[subs.length - 1];
             if (last && last.resource === "qwen-testes" && last.effect === "allow") console.log("  ok  " + id + ": só delega ao qwen-testes");
             else { console.log("  x   " + id + ": regra de subagente diferente de qwen-testes allow no fim"); fails++; }
+          }
+          // exec-docs: modelo local, edita só Markdown, sem shell e sem subagente
+          const doc = g("exec-docs");
+          if (!doc) { console.log("  x   agente não carregado: exec-docs"); fails++; }
+          else {
+            const p = doc.permissions || [];
+            const edits = p.filter(x => x.action === "edit");
+            const lastEdit = edits[edits.length - 1];
+            if (p.some(x => x.action === "edit" && x.resource === "*" && x.effect === "deny") && lastEdit && lastEdit.resource === "*.md" && lastEdit.effect === "allow") console.log("  ok  exec-docs: edita só *.md");
+            else { console.log("  x   exec-docs: edit não está restrito a *.md"); fails++; }
+            for (const act of ["shell", "subagent"]) {
+              if (p.some(x => x.action === act && x.resource === "*" && x.effect === "deny")) console.log("  ok  exec-docs: " + act + " negado");
+              else { console.log("  x   exec-docs: " + act + " NAO negado"); fails++; }
+            }
           }
           process.exit(fails > 0 ? 1 : 0);
         });
@@ -233,24 +247,66 @@ if command -v ollama >/dev/null 2>&1 && ollama ps 2>&1 | grep -q "CPU"; then
 fi
 
 step "Claude Code (~/.claude)"
-for f in agents/decompositor.md agents/executor.md agents/exec-backend.md agents/exec-dados.md agents/exec-frontend.md agents/testador.md skills/orquestrar/SKILL.md; do
+for f in agents/decompositor.md agents/executor.md agents/exec-backend.md agents/exec-dados.md agents/exec-frontend.md agents/exec-docs.md agents/testador.md skills/orquestrar/SKILL.md; do
   if [ -f "$HOME/.claude/$f" ]; then ok "presente: $f"; else warn "ausente: $HOME/.claude/$f (rode ./install.sh)"; fi
 done
+
+step "Scripts verificadores (~/.orquestrador/scripts)"
+SCRIPTS_DIR="$HOME/.orquestrador/scripts"
+for f in verificar.sh verificar.ps1 verificar_docs.py redigir_docs.py; do
+  if [ -f "$SCRIPTS_DIR/$f" ]; then ok "presente: $f"; else bad "ausente: $SCRIPTS_DIR/$f (rode ./install.sh)"; fi
+done
+if [ -f "$SCRIPTS_DIR/verificar.sh" ]; then
+  out="$(bash "$SCRIPTS_DIR/verificar.sh" "git --version" 2>&1)"
+  if printf '%s' "$out" | grep -q "git version" && printf '%s' "$out" | grep -q "RESULTADO: bloqueado"; then
+    ok "verificar.sh: git --version -> bloqueado (correto: não é teste)"
+  else
+    bad "verificar.sh não devolveu o contrato esperado"; printf '%s\n' "$out"
+  fi
+  # captura antes do grep: o verificador sai com 2 (bloqueado) e o pipefail derrubaria o pipe
+  out="$(bash "$SCRIPTS_DIR/verificar.sh" "composer install" 2>&1)"
+  if printf '%s' "$out" | grep -q "recusado"; then
+    ok "verificar.sh: composer install recusado sem rodar"
+  else
+    bad "verificar.sh não recusou composer install"
+  fi
+fi
+# no Windows, "python3" pode ser o atalho da Microsoft Store, que não roda nada
+PY=""
+for c in python3 python; do
+  if command -v "$c" >/dev/null 2>&1 && "$c" --version 2>&1 | grep -q "^Python 3"; then PY="$c"; break; fi
+done
+if [ -z "$PY" ]; then
+  warn "Python 3 não encontrado: a rota docs cai no exec-docs e o verificador de docs não roda"
+elif [ -f "$SCRIPTS_DIR/verificar_docs.py" ]; then
+  tmp="$(mktemp -d)"
+  printf '# Teste\n\nVeja [x](nao-existe.md).\n' > "$tmp/LEIAME.md"
+  : > "$tmp/vazio.md"
+  out="$("$PY" "$SCRIPTS_DIR/verificar_docs.py" "$tmp/LEIAME.md" --original "$tmp/vazio.md" --raiz "$tmp" 2>&1)"
+  rm -rf "$tmp"
+  if printf '%s' "$out" | grep -q "RESULTADO: falhou" && printf '%s' "$out" | grep -q "nao-existe.md"; then
+    ok "verificar_docs.py: link quebrado detectado ($("$PY" --version 2>&1))"
+  else
+    bad "verificar_docs.py não acusou o link quebrado"; printf '%s\n' "$out"
+  fi
+fi
 
 if [ "$SMOKE" -eq 1 ]; then
   step "Teste real de delegação (qwen-testes)"
   if ! command -v opencode >/dev/null 2>&1; then
     bad "opencode indisponível para o teste"
   else
-    echo "  rodando: opencode run --agent qwen-testes --model ollama/$EXPECTED_MODEL 'rode exatamente: git --version'"
+    # o mesmo pedido que os executores mandam: o verificador com o comando dentro
+    pedido="rode exatamente: bash ~/.orquestrador/scripts/verificar.sh 'git --version'"
+    echo "  rodando: opencode run --agent qwen-testes --model ollama/$EXPECTED_MODEL \"$pedido\""
     start=$(date +%s)
-    out="$(opencode run --agent qwen-testes --model "ollama/$EXPECTED_MODEL" "rode exatamente: git --version" 2>&1 || true)"
+    out="$(opencode run --agent qwen-testes --model "ollama/$EXPECTED_MODEL" "$pedido" 2>&1 || true)"
     end=$(date +%s)
     printf '%s\n' "$out"
-    if printf '%s' "$out" | grep -q "git version"; then
-      ok "comando real executado ($((end-start))s)"
+    if printf '%s' "$out" | grep -q "git version" && printf '%s' "$out" | grep -q "RESULTADO: bloqueado"; then
+      ok "verificador executado pelo qwen-testes ($((end-start))s)"
     else
-      bad "a saída não contém 'git version' — o comando pode não ter sido executado"
+      bad "a saída não contém 'git version' com RESULTADO: bloqueado — o verificador pode não ter rodado"
     fi
   fi
 fi

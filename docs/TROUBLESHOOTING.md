@@ -312,3 +312,81 @@ export PATH="$(cygpath -u "$APPDATA")/npm:$PATH"   # Git Bash
 `subagent: qwen-testes allow` **depois** de `subagent: * deny` (o último match vence).
 
 **Conferir:** `.\verify.ps1` → `executor: só delega ao qwen-testes`.
+
+---
+
+## `qwen-testes` roda o comando cru, sem o verificador
+
+**Sintoma:** a resposta do `qwen-testes` não tem a linha `CODIGO:`, e o veredito vem do
+modelo (regra antiga do `OK (`), não do script.
+
+**Causa:** o pedido chegou como `rode: <comando de teste>`. O modelo de 8B não monta sozinho
+o comando do verificador, mesmo com a instrução no prompt (Decisão 14).
+
+**Solução:** quem delega precisa mandar o comando completo:
+```
+rode exatamente: powershell -NoProfile -ExecutionPolicy Bypass -File $HOME/.orquestrador/scripts/verificar.ps1 '<comando>'
+rode exatamente: bash ~/.orquestrador/scripts/verificar.sh '<comando>'      # Linux/macOS
+```
+Os executores e o orquestrador já fazem isso pelo `system` do `opencode.json`. Se o
+problema voltou, confira se o config instalado é o deste repositório (`.\install.ps1`).
+
+---
+
+## Verificador rejeitado no `opencode run`
+
+**Sintoma:** `permission requested: shell (...); auto-rejecting` ao rodar o verificador
+num `opencode run` sem `--auto`.
+
+**Causa:** no modo não interativo, `shell: ask` vira rejeição automática.
+
+**Solução:** os comandos dos verificadores precisam estar em `allow` no `qwen-testes`
+(`powershell -NoProfile -ExecutionPolicy Bypass -File *verificar.ps1*`,
+`bash *verificar.sh*`, `python *verificar_docs.py*`, `python3 *verificar_docs.py*`). Já
+estão no `opencode.json`; para outro comando, use `opencode run --auto`.
+
+---
+
+## `redigir_docs.py` responde `RESULTADO: indisponivel`
+
+**Sintoma:** sai com código 3, e a rota docs cai no `exec-docs`.
+
+**Causa e solução, conforme o `MOTIVOS`:**
+- `Ollama fora do ar` → abra o Ollama (bandeja no Windows, `systemctl start ollama` no Linux)
+  ou aponte `ORQ_OLLAMA_URL`;
+- `modelo ... não está no Ollama` → `.\install.ps1` cria o `qwen3-12k`, ou use outro com
+  `ORQ_MODELO_DOCS` (ex.: `qwen3.5:4b`);
+- `texto atual grande demais` → passe `--secao '<título exato>'`: só aquela seção vai
+  para o modelo.
+
+Com `RESULTADO: falhou`, o modelo respondeu, mas o `verificar_docs.py` recusou nas 3
+tentativas. Os `MOTIVOS` vão como `EVIDENCIA` para o `exec-docs`.
+
+---
+
+## `python3` no Git Bash não roda nada (Windows)
+
+**Sintoma:** `python3 --version` imprime `Python não foi encontrado; executar sem
+argumentos para instalar do Microsoft Store...`.
+
+**Causa:** `%LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe` é um atalho da Microsoft
+Store e vem antes do Python real no PATH.
+
+**Solução:** no Windows, use `python`. O `install.sh` e o `verify.sh` testam `python3` e
+`python` e ficam com o primeiro que responde `Python 3`. Para tirar o atalho:
+Configurações → Aplicativos → Configurações avançadas → Aliases de execução do aplicativo.
+
+---
+
+## `bash` chamado de fora do Git Bash abre o WSL (Windows)
+
+**Sintoma:** chamar o `verificar.sh` de um programa Windows (Python `subprocess`, `cmd`)
+com `bash` devolve saída vazia, ou um `git` de outra versão (`git version 2.34.1` do
+Ubuntu).
+
+**Causa:** `C:\Windows\System32\bash.exe` é o bash do WSL e vem primeiro na busca do
+Windows; ele não abre caminhos `C:\...`.
+
+**Solução:** use o caminho completo do Git Bash (`C:\Program Files\Git\usr\bin\bash.exe`;
+`shutil.which("bash")` acha esse) ou, no PowerShell, o `verificar.ps1`. Dentro do Claude
+Code não acontece: a ferramenta Bash já é o Git Bash.

@@ -94,6 +94,10 @@ Conferir se o servidor pegou: `server.log` em `%LOCALAPPDATA%\Ollama` deve mostr
 | `qwen3:4b-instruct` na CPU, smoke `qwen-testes` no OpenCode | 388 s | prompt de ~3,9k tokens a ~35 tok/s; descartado |
 | `qwen3:8b` a 4096, chamada nativa única | **~22 s** | sem orquestração |
 | modelo free de nuvem (`flint-40b-free`) | **~5 s** | usado como orquestrador em teste |
+| `verificar.ps1` / `verificar.sh` (veredito por regra) | < 1 s + o próprio teste | sem modelo; substitui o `testador` (2026-10-24) |
+| `qwen-testes` rodando o verificador (`verify.ps1 -Smoke`) | **102,6 s** | inclui carregar o `qwen3-12k` e o prompt do OpenCode |
+| `redigir_docs.py`, 1 seção do README, `qwen3-12k` | **22–39 s** | 1 tentativa, passou no `verificar_docs.py` |
+| `redigir_docs.py`, mesma seção, `qwen3.5:4b` | 20–21 s | 1 tentativa; texto sem crases nos caminhos |
 
 Custo dos subagentes: **US$ 0,00** (Ollama local). O custo da sessão é o do modelo que você
 escolher para o `orquestrador` no `/models`.

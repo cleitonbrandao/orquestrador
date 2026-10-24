@@ -21,7 +21,7 @@ Você executa UMA tarefa do plano.
 - Siga os padrões do código existente (nomes, estilo, densidade de comentários).
 - Nunca leia nem edite `.env`, `.env.*`, `*.pem`, `*.key` ou `*id_rsa*`.
 - Se o prompt trouxer uma EVIDENCIA de falha anterior, corrija exatamente o que ela aponta.
-- Você não roda testes: o agente principal manda o testador rodar o `comando_teste`
+- Você não roda testes: o agente principal roda o `comando_teste` no verificador
   depois que você terminar.
 
 Responda SOMENTE:

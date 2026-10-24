@@ -57,7 +57,7 @@ if (-not (Test-Path -LiteralPath $Target)) {
         if ($cfg.default_agent) { Ok "default_agent: $($cfg.default_agent)" } else { Warn2 "default_agent não definido" }
         $names = @()
         if ($cfg.agents) { $names = @($cfg.agents.PSObject.Properties.Name) }
-        foreach ($expected in @("orquestrador", "decompositor", "executor", "exec-backend", "exec-dados", "exec-frontend", "local-helper", "qwen-testes")) {
+        foreach ($expected in @("orquestrador", "decompositor", "executor", "exec-backend", "exec-dados", "exec-frontend", "exec-docs", "local-helper", "qwen-testes")) {
             if ($names -contains $expected) { Ok "agente presente: $expected" } else { Bad "agente ausente: $expected" }
         }
         if ($cfg.agents.orquestrador -and $cfg.agents.orquestrador.model) {
@@ -167,7 +167,7 @@ if ($bins.ContainsKey("opencode")) {
         if ($orc) {
             $subAllow = @($orc.permissions | Where-Object { $_.action -eq "subagent" -and $_.effect -eq "allow" })
             Ok ("orquestrador: {0} delegações permitidas" -f $subAllow.Count)
-            foreach ($id in @("decompositor", "executor", "exec-backend", "exec-dados", "exec-frontend")) {
+            foreach ($id in @("decompositor", "executor", "exec-backend", "exec-dados", "exec-frontend", "exec-docs")) {
                 if ($subAllow | Where-Object { $_.resource -eq $id }) { Ok "orquestrador: pode delegar ao $id" }
                 else { Bad "orquestrador: delegação ao $id não permitida" }
             }
@@ -189,6 +189,19 @@ if ($bins.ContainsKey("opencode")) {
             $lastSub = $p | Where-Object { $_.action -eq "subagent" } | Select-Object -Last 1
             if ($lastSub -and $lastSub.resource -eq "qwen-testes" -and $lastSub.effect -eq "allow") { Ok "${id}: só delega ao qwen-testes" }
             else { Bad "${id}: regra de subagente diferente de 'qwen-testes allow' no fim" }
+        }
+
+        # exec-docs: modelo local, edita só Markdown, sem shell e sem subagente
+        $doc = $agents | Where-Object { $_.id -eq "exec-docs" } | Select-Object -First 1
+        if (-not $doc) { Bad "agente não carregado: exec-docs" }
+        else {
+            $p = @($doc.permissions)
+            if ($doc.model) { Ok "exec-docs: $($doc.model.providerID)/$($doc.model.id)" }
+            $lastEdit = $p | Where-Object { $_.action -eq "edit" } | Select-Object -Last 1
+            $editDeny = $p | Where-Object { $_.action -eq "edit" -and $_.resource -eq "*" -and $_.effect -eq "deny" }
+            if ($editDeny -and $lastEdit.resource -eq "*.md" -and $lastEdit.effect -eq "allow") { Ok "exec-docs: edita só *.md" } else { Bad "exec-docs: edit não está restrito a *.md" }
+            if ($p | Where-Object { $_.action -eq "shell" -and $_.resource -eq "*" -and $_.effect -eq "deny" }) { Ok "exec-docs: shell negado" } else { Bad "exec-docs: shell NÃO negado" }
+            if ($p | Where-Object { $_.action -eq "subagent" -and $_.resource -eq "*" -and $_.effect -eq "deny" }) { Ok "exec-docs: subagente negado" } else { Bad "exec-docs: subagente NÃO negado" }
         }
     }
 }
@@ -212,9 +225,39 @@ if ($bins.ContainsKey("ollama")) {
 
 Step "Claude Code (~/.claude)"
 $ClaudeDir = Join-Path $env:USERPROFILE ".claude"
-foreach ($f in @("agents\decompositor.md", "agents\executor.md", "agents\exec-backend.md", "agents\exec-dados.md", "agents\exec-frontend.md", "agents\testador.md", "skills\orquestrar\SKILL.md")) {
+foreach ($f in @("agents\decompositor.md", "agents\executor.md", "agents\exec-backend.md", "agents\exec-dados.md", "agents\exec-frontend.md", "agents\exec-docs.md", "agents\testador.md", "skills\orquestrar\SKILL.md")) {
     $path = Join-Path $ClaudeDir $f
     if (Test-Path -LiteralPath $path) { Ok "presente: $f" } else { Warn2 "ausente: $path (rode .\install.ps1)" }
+}
+
+Step "Scripts verificadores (~/.orquestrador/scripts)"
+$ScriptsDir = Join-Path $env:USERPROFILE ".orquestrador\scripts"
+foreach ($f in @("verificar.ps1", "verificar.sh", "verificar_docs.py", "redigir_docs.py")) {
+    if (Test-Path -LiteralPath (Join-Path $ScriptsDir $f)) { Ok "presente: $f" } else { Bad "ausente: $(Join-Path $ScriptsDir $f) (rode .\install.ps1)" }
+}
+$verificar = Join-Path $ScriptsDir "verificar.ps1"
+if (Test-Path -LiteralPath $verificar) {
+    $out = (& powershell -NoProfile -ExecutionPolicy Bypass -File $verificar "git --version" | Out-String)
+    if ($out -match "git version" -and $out -match "RESULTADO: bloqueado") { Ok "verificar.ps1: git --version -> bloqueado (correto: não é teste)" }
+    else { Bad "verificar.ps1 não devolveu o contrato esperado"; Write-Host $out }
+    $out = (& powershell -NoProfile -ExecutionPolicy Bypass -File $verificar "composer install" | Out-String)
+    if ($out -match "recusado") { Ok "verificar.ps1: composer install recusado sem rodar" } else { Bad "verificar.ps1 não recusou composer install" }
+}
+$pyVer = ""
+if (Get-Command python -ErrorAction SilentlyContinue) { $pyVer = ((& python --version 2>&1) -join "") }
+$verificarDocs = Join-Path $ScriptsDir "verificar_docs.py"
+if ($pyVer -notmatch "Python 3") {
+    Warn2 "Python 3 não encontrado: a rota docs cai no exec-docs e o verificador de docs não roda"
+} elseif (Test-Path -LiteralPath $verificarDocs) {
+    $tmp = Join-Path $env:TEMP ("orq-verify-{0}" -f (Get-Random))
+    New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+    "# Teste`n`nVeja [x](nao-existe.md).`n" | Out-File -LiteralPath (Join-Path $tmp "LEIAME.md") -Encoding utf8
+    $vazio = Join-Path $tmp "vazio.md"
+    New-Item -ItemType File -Path $vazio -Force | Out-Null
+    $out = (& python $verificarDocs (Join-Path $tmp "LEIAME.md") --original $vazio --raiz $tmp 2>&1 | Out-String)
+    Remove-Item -LiteralPath $tmp -Recurse -Force -Confirm:$false -ErrorAction SilentlyContinue
+    if ($out -match "RESULTADO: falhou" -and $out -match "nao-existe.md") { Ok "verificar_docs.py: link quebrado detectado ($pyVer)" }
+    else { Bad "verificar_docs.py não acusou o link quebrado"; Write-Host $out }
 }
 
 if ($Smoke) {
@@ -222,15 +265,17 @@ if ($Smoke) {
     if (-not $bins.ContainsKey("opencode")) {
         Bad "opencode indisponível para o teste"
     } else {
-        Write-Host "  rodando: opencode run --agent qwen-testes --model ollama/$ExpectedModel 'rode exatamente: git --version'"
+        # o mesmo pedido que os executores mandam: o verificador com o comando dentro
+        $pedido = "rode exatamente: powershell -NoProfile -ExecutionPolicy Bypass -File `$HOME/.orquestrador/scripts/verificar.ps1 'git --version'"
+        Write-Host "  rodando: opencode run --agent qwen-testes --model ollama/$ExpectedModel `"$pedido`""
         $sw = [Diagnostics.Stopwatch]::StartNew()
-        $out = (& opencode run --agent qwen-testes --model "ollama/$ExpectedModel" "rode exatamente: git --version") 2>&1 | Out-String
+        $out = (& opencode run --agent qwen-testes --model "ollama/$ExpectedModel" $pedido) 2>&1 | Out-String
         $sw.Stop()
         Write-Host $out
-        if ($out -match "git version") {
-            Ok ("comando real executado ({0:N1}s)" -f $sw.Elapsed.TotalSeconds)
+        if ($out -match "git version" -and $out -match "RESULTADO: bloqueado") {
+            Ok ("verificador executado pelo qwen-testes ({0:N1}s)" -f $sw.Elapsed.TotalSeconds)
         } else {
-            Bad "a saída não contém 'git version' — o comando pode não ter sido executado"
+            Bad "a saída não contém 'git version' com RESULTADO: bloqueado — o verificador pode não ter rodado"
         }
     }
 }

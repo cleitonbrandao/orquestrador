@@ -208,6 +208,25 @@ else
   install_item "$REPO_DIR/claude/skills/orquestrar/SKILL.md" "$SKILL_DIR/SKILL.md"
 fi
 
+# Verificadores por regra e redator de docs: usados pelo Claude Code e pelo OpenCode.
+step "Instalando os scripts em ~/.orquestrador/scripts"
+SCRIPTS_DIR="$HOME/.orquestrador/scripts"
+mkdir -p "$SCRIPTS_DIR"
+for f in "$REPO_DIR"/scripts/*.sh "$REPO_DIR"/scripts/*.ps1 "$REPO_DIR"/scripts/*.py; do
+  [ -f "$f" ] && install_item "$f" "$SCRIPTS_DIR/$(basename "$f")"
+done
+chmod +x "$SCRIPTS_DIR"/*.sh "$SCRIPTS_DIR"/*.py 2>/dev/null || true
+# no Windows, "python3" pode ser o atalho da Microsoft Store, que não roda nada
+PY=""
+for c in python3 python; do
+  if command -v "$c" >/dev/null 2>&1 && "$c" --version 2>&1 | grep -q "^Python 3"; then PY="$c"; break; fi
+done
+if [ -n "$PY" ]; then
+  ok "$PY: $("$PY" --version 2>&1)"
+else
+  warn "Python 3 não encontrado: o redator de docs e o verificador de docs não rodam (a rota docs cai no exec-docs)"
+fi
+
 # Slots do pipeline: o Ollama roda como serviço (systemd/launchd), então as variáveis
 # precisam ir para o serviço. Só mostramos o comando, sem sudo automático.
 step "Variáveis OLLAMA_* (slots = $PARALLEL)"

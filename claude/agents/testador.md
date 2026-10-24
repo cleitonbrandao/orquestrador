@@ -1,6 +1,6 @@
 ---
 name: testador
-description: Roda exatamente um comando de teste pedido pelo /orquestrar e devolve a saída literal com veredito. Não altera arquivos.
+description: Fallback do /orquestrar quando o script verificar.sh não está instalado. Roda exatamente um comando de teste e devolve a saída literal com veredito. Não altera arquivos.
 tools: Bash, Read
 model: haiku
 ---
