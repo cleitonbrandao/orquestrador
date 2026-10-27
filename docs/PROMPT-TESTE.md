@@ -23,6 +23,7 @@ modelos> /rank                 # ranking por tok/s, nota ao lado
 modelos> /nota                 # ranking por nota, tok/s ao lado
 modelos> /list                 # testados e pendentes
 modelos> /report               # relatório visual em docs/resultados/relatorio.html
+modelos> /prune                # desinstala os modelos reprovados (pergunta antes)
 modelos> /help
 ```
 
@@ -32,6 +33,19 @@ Teams/Chrome e limpar cache e swap. Containers parados são religados ao sair (o
 Resultados medidos com RAM livre muito diferente não são comparáveis; a coluna `ram_disp_mb` do CSV e
 o `/ver <modelo>` mostram a RAM livre de cada teste. `drop_caches` tem ganho pequeno (o cache já conta
 como memória disponível); o ganho real vem de parar consumidores.
+
+### Limpar modelos reprovados
+
+`/prune` (ou `scripts/podar-modelos.sh`) remove do Ollama o que ficou inviável. Um modelo reprova
+quando o **melhor** teste dele tem qualidade < 30/60 **ou** velocidade < 8 tok/s; mude com
+`--min-qualidade N` e `--min-toks N`. `--dry-run` só lista.
+
+- Pergunta `[s/N]` por modelo e depois confirma o total; sem terminal interativo não remove nada.
+- Nunca remove: modelos usados no `opencode.json`, o modelo de embeddings do kb, modelos que não
+  geram texto e modelos sem teste salvo. Os reprovados protegidos aparecem na lista com o motivo.
+- Modelos derivados (`qwen-coder-8k` a partir de `qwen2.5-coder:1.5b`) compartilham os pesos:
+  remover um não libera espaço enquanto o outro existir, e não quebra o que ficou.
+- O histórico em `docs/resultados/resultados.csv` é mantido.
 
 O resto deste documento descreve o método manual.
 

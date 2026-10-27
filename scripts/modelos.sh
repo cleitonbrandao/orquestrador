@@ -75,6 +75,7 @@ ajuda() {
   cmd_linha " " "$P_LARANJA" "/clean"         "libera RAM: Ollama, Docker, apps, cache e swap (pergunta antes)"
   cmd_linha " " "$P_LARANJA" "/restore"       "religa os containers que a limpeza parou (também ao sair)"
   cmd_linha " " "$P_LARANJA" "/ram"           "RAM disponível e o que está parado"
+  cmd_linha " " "$P_LARANJA" "/prune"         "desinstala modelos reprovados (--dry-run, --min-qualidade, --min-toks)"
   titulo "$P_AZUL" "$I_CODIGO  Geral"
   cmd_linha " " "$P_AZUL"   "/help"           "esta lista"
   cmd_linha " " "$P_AZUL"   "/quit"           "sair (ou Ctrl-D); Ctrl-C interrompe o comando em andamento"
@@ -140,6 +141,7 @@ while true; do
     /clean|/c)  limpar "$(alvo_de "${args[@]}")"; LIMPO=1 ;;
     /restore)   restaurar ;;
     /ram)       estado ;;
+    /prune|/remover) "$RAIZ/scripts/podar-modelos.sh" "${args[@]}" ;;
     /help|/h|/\?) ajuda ;;
     /quit|/exit|/q) break ;;
     /*)         echo "${VERM}${I_FALHA} comando desconhecido: $cmd${N} (digite /help)" ;;

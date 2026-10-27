@@ -7,6 +7,7 @@ Uso: python3 -I relatorio.py <comando> [argumentos] [--csv ARQ] [--instalados a,
   lista             todos os modelos testados (último teste) com a nota, mais os pendentes
   ver <modelo>      histórico completo de um modelo
   html [--abrir]    gera docs/resultados/relatorio.html (e abre no navegador com --abrir)
+  reprovados        modelos instalados e reprovados, em TSV (--min-qualidade N, --min-toks N)
 Só usa a biblioteca padrão.
 """
 import csv
@@ -347,12 +348,40 @@ def cmd_html(ultimos, caminho, instalados=(), args=(), **_):
             print(apagado("xdg-open não encontrado; abra o arquivo no navegador."))
 
 
-COMANDOS = {"rank": cmd_rank, "nota": cmd_nota, "lista": cmd_lista, "ver": cmd_ver, "html": cmd_html}
+def cmd_reprovados(linhas, caminho, instalados=(), min_qualidade=30.0, min_toks=8.0, **_):
+    """TSV: modelo, melhor qualidade, melhor tok/s, motivo. Usa o melhor teste de cada modelo."""
+    melhor = {}
+    for r in linhas:
+        nome = r["modelo"].removesuffix(":latest")
+        q, t = num(r["pontos_qualidade"]), num(r["tok_s_geracao"])
+        atual = melhor.setdefault(nome, [r["modelo"], q, t])
+        atual[1], atual[2] = max(atual[1], q), max(atual[2], t)
+    for nome in instalados:
+        chave = nome.removesuffix(":latest")
+        if chave not in melhor:
+            continue
+        original, q, t = melhor[chave]
+        motivos = []
+        if q < min_qualidade:
+            motivos.append(f"qualidade {q:g}/60 < {min_qualidade:g}")
+        if t < min_toks:
+            motivos.append(f"{t:g} tok/s < {min_toks:g}")
+        if motivos:
+            print("\t".join([nome, f"{q:g}", f"{t:g}", "; ".join(motivos)]))
+
+
+COMANDOS = {"reprovados": cmd_reprovados, "rank": cmd_rank, "nota": cmd_nota, "lista": cmd_lista, "ver": cmd_ver, "html": cmd_html}
 
 
 def main():
     args = sys.argv[1:]
     caminho, instalados = CSV_PADRAO, []
+    limites = {"min_qualidade": 30.0, "min_toks": 8.0}
+    for flag, chave in (("--min-qualidade", "min_qualidade"), ("--min-toks", "min_toks")):
+        if flag in args:
+            i = args.index(flag)
+            limites[chave] = num(args[i + 1] if i + 1 < len(args) else "", limites[chave])
+            del args[i:i + 2]
     for flag in ("--csv", "--instalados"):
         if flag in args:
             i = args.index(flag)
@@ -366,8 +395,9 @@ def main():
         print(__doc__)
         return
     linhas, ultimos = ler(caminho)
-    COMANDOS[args[0]](linhas=linhas, ultimos=ultimos, caminho=caminho, instalados=instalados, args=args[1:])
-    print()
+    COMANDOS[args[0]](linhas=linhas, ultimos=ultimos, caminho=caminho, instalados=instalados, args=args[1:], **limites)
+    if args[0] != "reprovados":
+        print()
 
 
 if __name__ == "__main__":
