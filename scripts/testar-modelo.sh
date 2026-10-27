@@ -292,10 +292,11 @@ echo "  ${NEG}Serve para${N}  ${serve# }"
 echo "${DIM}  Tempo do teste: ${TEMPO}s | respostas em: ${DIR#$RAIZ/}${N}"
 
 # --- 4. CSV ---
-CABECALHO="data,modelo,thinking,tok_s_geracao,tok_s_leitura,carga_s,ram_gb,cpu_pct,A,B,C,D,pontos_qualidade,pontos_velocidade,nota,tempo_s,ram_disp_mb"
+CABECALHO="data,modelo,thinking,tok_s_geracao,tok_s_leitura,carga_s,ram_gb,cpu_pct,A,B,C,D,pontos_qualidade,pontos_velocidade,nota,tempo_s,ram_disp_mb,maquina"
 [ -f "$CSV" ] || echo "$CABECALHO" > "$CSV"
 # CSV criado antes da coluna ram_disp_mb: completa o cabeçalho (linhas antigas ficam com o campo vazio)
 head -1 "$CSV" | grep -q ram_disp_mb || sed -i '1s/$/,ram_disp_mb/' "$CSV"
-echo "$(date +%Y-%m-%d_%H:%M),$MODELO,$THINK_ROTULO,$TOK_GER,$TOK_LEIT,$CARGA,$RAM_GB,$CPU_PCT,${RES[A]%%:*},${RES[B]%%:*},${RES[C]%%:*},${RES[D]%%:*},$PONTOS_Q,$PONTOS_V,$NOTA,$TEMPO,$RAM_DISP" >> "$CSV"
+head -1 "$CSV" | grep -q maquina || sed -i '1s/$/,maquina/' "$CSV"
+echo "$(date +%Y-%m-%d_%H:%M),$MODELO,$THINK_ROTULO,$TOK_GER,$TOK_LEIT,$CARGA,$RAM_GB,$CPU_PCT,${RES[A]%%:*},${RES[B]%%:*},${RES[C]%%:*},${RES[D]%%:*},$PONTOS_Q,$PONTOS_V,$NOTA,$TEMPO,$RAM_DISP,$(hostname)" >> "$CSV"
 echo "${DIM}  ${I_PRONTO} salvo em ${CSV#$RAIZ/}. Use /rank, /nota ou /report para comparar.${N}"
 continuar_no_terminal

@@ -47,6 +47,28 @@ quando o **melhor** teste dele tem qualidade < 30/60 **ou** velocidade < 8 tok/s
   remover um não libera espaço enquanto o outro existir, e não quebra o que ficou.
 - O histórico em `docs/resultados/resultados.csv` é mantido.
 
+### No Windows (PowerShell)
+
+Os mesmos comandos existem em PowerShell (`.ps1`), com o mesmo CSV, as mesmas notas e os mesmos
+`/test`, `/bench`, `/rank`, `/nota`, `/list`, `/ver`, `/report`, `/clean`, `/restore`, `/ram`, `/prune`:
+
+```powershell
+scripts\modelos.cmd              # abre o terminal sem mexer na política de execução
+# ou, em um PowerShell já aberto:
+powershell -ExecutionPolicy Bypass -File scripts\modelos.ps1
+.\scripts\testar-modelo.ps1 qwen3.5:4b -Think -Rapido     # teste direto (-Limpar, -Velocidade, -Listar)
+.\scripts\podar-modelos.ps1 -DryRun -MinQualidade 30 -MinToks 8
+```
+
+- Requisitos: Windows PowerShell 5.1 ou superior, Ollama em execução e Python 3 (`python` ou `py`) no PATH.
+- Use o **Windows Terminal** para as cores e os ícones. Os ícones Nerd Font são detectados pelas fontes
+  instaladas; sem eles o visual usa símbolos Unicode (`$env:ORQ_ICONS = "nerd|unicode|ascii"` força um).
+- Diferenças do Linux: a limpeza de RAM não limpa cache nem swap (o Windows libera o cache sozinho);
+  sai do terminal com `/quit` ou Ctrl+Z e Enter, e Ctrl+C encerra o terminal (os containers parados
+  são religados mesmo assim). A linha de memória do teste mostra CPU e GPU (`% CPU / % GPU`).
+- O CSV ganhou a coluna `maquina` (nome do computador), porque notas de máquinas diferentes não são
+  comparáveis: a velocidade vale 40 dos 100 pontos. Ao comparar, filtre por máquina.
+
 O resto deste documento descreve o método manual.
 
 ## 1. Preparar a medição

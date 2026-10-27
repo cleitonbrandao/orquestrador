@@ -20,7 +20,8 @@ import sys
 RAIZ = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 CSV_PADRAO = os.path.join(os.environ.get("ORQ_RESULTADOS") or os.path.join(RAIZ, "docs", "resultados"), "resultados.csv")
 
-COR = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+# FORCE_COLOR=1: o PowerShell captura a saída num pipe, então isatty() seria falso mesmo no terminal
+COR = "NO_COLOR" not in os.environ and (sys.stdout.isatty() or os.environ.get("FORCE_COLOR") == "1")
 
 
 def _nerd():
@@ -341,6 +342,9 @@ def cmd_html(ultimos, caminho, instalados=(), args=(), **_):
         f.write(doc)
     print(f"Relatório gerado: {os.path.relpath(destino, RAIZ)}")
     if "--abrir" in args:
+        if hasattr(os, "startfile"):  # Windows
+            os.startfile(destino)
+            return
         opener = shutil.which("xdg-open")
         if opener:
             subprocess.Popen([opener, destino], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
