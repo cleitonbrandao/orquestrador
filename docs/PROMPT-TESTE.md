@@ -24,6 +24,7 @@ modelos> /nota                 # ranking por nota, tok/s ao lado
 modelos> /list                 # testados e pendentes
 modelos> /report               # relatório visual em docs/resultados/relatorio.html
 modelos> /prune                # desinstala os modelos reprovados (pergunta antes)
+modelos> /reset [modelo]         # apaga os resultados dos testes desta máquina (ou só de um modelo)
 modelos> /help
 ```
 
@@ -45,7 +46,9 @@ quando o **melhor** teste dele tem qualidade < 30/60 **ou** velocidade < 8 tok/s
   geram texto e modelos sem teste salvo. Os reprovados protegidos aparecem na lista com o motivo.
 - Modelos derivados (`qwen-coder-8k` a partir de `qwen2.5-coder:1.5b`) compartilham os pesos:
   remover um não libera espaço enquanto o outro existir, e não quebra o que ficou.
-- O histórico em `docs/resultados/resultados.csv` é mantido.
+- O histórico em `docs/resultados/resultados.csv` é mantido. Essa pasta não é versionada (está no `.gitignore`):
+  os resultados dependem da máquina, então cada computador guarda os seus. `/reset` apaga os testes
+  salvos (todos, ou só de um modelo) para recomeçar do zero em outra máquina; não desinstala modelos.
 
 ### No Windows (PowerShell)
 

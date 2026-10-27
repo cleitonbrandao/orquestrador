@@ -16,6 +16,7 @@ param()
 $RAIZ = Split-Path $PSScriptRoot -Parent
 $TESTAR = Join-Path $PSScriptRoot "testar-modelo.ps1"
 $PODAR = Join-Path $PSScriptRoot "podar-modelos.ps1"
+$LIMPARTESTES = Join-Path $PSScriptRoot "limpar-testes.ps1"
 $RELATORIO = Join-Path $PSScriptRoot "relatorio.py"
 $DIR_RESULTADOS = if ($env:ORQ_RESULTADOS) { $env:ORQ_RESULTADOS } else { Join-Path $RAIZ "docs\resultados" }
 $CSV_ATUAL = Join-Path $DIR_RESULTADOS "resultados.csv"
@@ -89,6 +90,7 @@ function Ajuda {
     CmdLinha " " $PAL.Laranja "/restore" "religa os containers que a limpeza parou (também ao sair)"
     CmdLinha " " $PAL.Laranja "/ram" "RAM disponível e o que está parado"
     CmdLinha " " $PAL.Laranja "/prune" "desinstala modelos reprovados (--dry-run, --min-qualidade, --min-toks)"
+    CmdLinha " " $PAL.Laranja "/reset [modelo]" "apaga os resultados dos testes desta máquina (ou só de um modelo)"
     Titulo $PAL.Azul "$($ICO.Codigo)  Geral"
     CmdLinha " " $PAL.Azul "/help" "esta lista"
     CmdLinha " " $PAL.Azul "/quit" "sair (ou Ctrl+Z e Enter); Ctrl+C encerra o terminal"
@@ -186,6 +188,7 @@ try {
                 '^/restore$' { $null = Restaurar; break }
                 '^/ram$' { Estado; break }
                 '^/(prune|remover)$' { $h = Para-Splat-Prune $resto; & $PODAR @h; break }
+                '^/reset$' { & $LIMPARTESTES @(Alvo-De $resto); break }
                 '^/(help|h|\?)$' { Ajuda; break }
                 '^/(quit|exit|q)$' { return }
                 '^/' { Write-Host ((Fg $PAL.Verm) + "$($ICO.Xis) comando desconhecido: $cmd" + (Rs) + " (digite /help)"); break }

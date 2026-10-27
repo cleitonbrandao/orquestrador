@@ -25,6 +25,5 @@ graft/
 __pycache__/
 *.pyc
 
-# Testes de modelos: só o CSV consolidado é versionado
-docs/resultados/*/
-docs/resultados/relatorio.html
+# Resultados dos testes de modelos: dependem da máquina, ficam só localmente
+docs/resultados/

@@ -76,6 +76,7 @@ ajuda() {
   cmd_linha " " "$P_LARANJA" "/restore"       "religa os containers que a limpeza parou (também ao sair)"
   cmd_linha " " "$P_LARANJA" "/ram"           "RAM disponível e o que está parado"
   cmd_linha " " "$P_LARANJA" "/prune"         "desinstala modelos reprovados (--dry-run, --min-qualidade, --min-toks)"
+  cmd_linha " " "$P_LARANJA" "/reset [modelo]" "apaga os resultados dos testes desta máquina (ou só de um modelo)"
   titulo "$P_AZUL" "$I_CODIGO  Geral"
   cmd_linha " " "$P_AZUL"   "/help"           "esta lista"
   cmd_linha " " "$P_AZUL"   "/quit"           "sair (ou Ctrl-D); Ctrl-C interrompe o comando em andamento"
@@ -142,6 +143,7 @@ while true; do
     /restore)   restaurar ;;
     /ram)       estado ;;
     /prune|/remover) "$RAIZ/scripts/podar-modelos.sh" "${args[@]}" ;;
+    /reset)     "$RAIZ/scripts/limpar-testes.sh" "${args[@]}" ;;
     /help|/h|/\?) ajuda ;;
     /quit|/exit|/q) break ;;
     /*)         echo "${VERM}${I_FALHA} comando desconhecido: $cmd${N} (digite /help)" ;;
