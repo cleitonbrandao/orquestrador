@@ -35,6 +35,7 @@ banner() {
   cmd_linha "$I_TROFEU" "$P_ROSA"   "/nota"           "ranking por nota, com o tok/s ao lado"
   cmd_linha "$I_PAINEL" "$P_CIANO"  "/list"           "testados com nota e pendentes"
   cmd_linha "$I_PAINEL" "$P_CIANO"  "/report"         "relatório visual (HTML)"
+  cmd_linha "$I_TROFEU" "$P_ROSA"   "/list-fluxo-ia"  "melhores duplas gerador + revisor"
   cmd_linha "$I_ENGR"   "$P_LARANJA" "/clean"         "libera RAM antes de testar"
   cmd_linha "$I_CODIGO" "$P_AZUL"   "/help  /quit"    "todos os comandos · sair"
   echo
@@ -71,6 +72,7 @@ ajuda() {
   cmd_linha " " "$P_CIANO"  "/list"           "testados (com a nota) e instalados ainda sem teste"
   cmd_linha " " "$P_CIANO"  "/ver <modelo>"   "histórico completo de um modelo"
   cmd_linha " " "$P_CIANO"  "/report"         "gera docs/resultados/relatorio.html e abre no navegador"
+  cmd_linha " " "$P_ROSA"   "/list-fluxo-ia"  "lista as melhores duplas gerador + revisor para o fluxo"
   titulo "$P_LARANJA" "$I_ENGR  Máquina"
   cmd_linha " " "$P_LARANJA" "/clean"         "libera RAM: Ollama, Docker, apps, cache e swap (pergunta antes)"
   cmd_linha " " "$P_LARANJA" "/restore"       "religa os containers que a limpeza parou (também ao sair)"
@@ -139,6 +141,7 @@ while true; do
     /list|/l)   python3 -I "$RELATORIO" lista --instalados "$(instalados)" ;;
     /ver|/v)    python3 -I "$RELATORIO" ver "${args[@]}" ;;
     /report)    python3 -I "$RELATORIO" html --instalados "$(instalados)" --abrir ;;
+    /list-fluxo-ia | /fluxo) python "$RAIZ/scripts/fluxo_ia.py" ;;
     /clean|/c)  limpar "$(alvo_de "${args[@]}")"; LIMPO=1 ;;
     /restore)   restaurar ;;
     /ram)       estado ;;
