@@ -26,7 +26,7 @@ printf 'FROM qwen3:8b\nPARAMETER num_ctx 12288\n' > /tmp/Modelfile
 ollama create qwen3-12k -f /tmp/Modelfile
 ```
 
-Depois aponte `agents.local-helper.model` e `agents.qwen-testes.model` para
+Depois aponte `agents.local-helper.model` e `agents.exec-docs.model` para
 `ollama/qwen3-12k:latest`.
 
 **Conferir:**
@@ -82,7 +82,7 @@ modelo (na v2.1.3, caía em um modelo de nuvem).
 
 **Solução:** passar o modelo explicitamente.
 ```powershell
-opencode run --agent qwen-testes --model ollama/qwen3-12k:latest "rode: git --version"
+opencode run --agent local-helper --model ollama/qwen3-12k:latest "leia README.md"
 ```
 
 ---
@@ -104,7 +104,7 @@ opencode debug agents
 
 **Não use:**
 ```json
-"model": "{env:LOCAL_HELPER_MODEL:-ollama/qwen3-16k:latest}"
+"model": "{env:LOCAL_HELPER_MODEL:-ollama/qwen3-12k:latest}"
 ```
 Isso faz o agente desaparecer.
 
@@ -299,51 +299,38 @@ export PATH="$(cygpath -u "$APPDATA")/npm:$PATH"   # Git Bash
 **Causa:** o serviço ainda está recarregando a configuração.
 
 **Solução:** esperar alguns segundos. O `verify.ps1` já tenta 3 vezes até o
-`qwen-testes` aparecer.
+`decompositor` aparecer.
 
 ---
 
 ## Executor não consegue rodar o teste
 
-**Sintoma:** o executor responde `RESULTADO: bloqueado` dizendo que não pode acionar o
-`qwen-testes`.
+**Sintoma:** o executor responde `RESULTADO: bloqueado` dizendo que a ferramenta
+`run_tests` não existe ou recusou o comando.
 
-**Causa:** a regra de subagente do executor precisa terminar com
-`subagent: qwen-testes allow` **depois** de `subagent: * deny` (o último match vence).
+**Causa e solução:**
+- ferramenta ausente → o MCP `run_tests` não subiu: confira `mcp.run_tests` no
+  `opencode.json` e se `orq-run-tests` está no PATH (`.erify.ps1` → `Servidor MCP run_tests`);
+- `comando fora da allowlist` → o `comando_teste` do plano não é um comando de teste
+  conhecido; estenda com `ORQ_TESTS_ALLOW="regex;;regex"` ou corrija o comando;
+- `metacaracteres de shell` → o comando tem `;`, `&`, `|`, `>` ou `$()`: o `run_tests`
+  roda sem shell e recusa encadeamento.
 
-**Conferir:** `.\verify.ps1` → `executor: só delega ao qwen-testes`.
-
----
-
-## `qwen-testes` roda o comando cru, sem o verificador
-
-**Sintoma:** a resposta do `qwen-testes` não tem a linha `CODIGO:`, e o veredito vem do
-modelo (regra antiga do `OK (`), não do script.
-
-**Causa:** o pedido chegou como `rode: <comando de teste>`. O modelo de 8B não monta sozinho
-o comando do verificador, mesmo com a instrução no prompt (Decisão 14).
-
-**Solução:** quem delega precisa mandar o comando completo:
-```
-rode exatamente: powershell -NoProfile -ExecutionPolicy Bypass -File $HOME/.orquestrador/scripts/verificar.ps1 '<comando>'
-rode exatamente: bash ~/.orquestrador/scripts/verificar.sh '<comando>'      # Linux/macOS
-```
-Os executores e o orquestrador já fazem isso pelo `system` do `opencode.json`. Se o
-problema voltou, confira se o config instalado é o deste repositório (`.\install.ps1`).
+Os executores não têm `bash` nem subagente: o teste passa só pelo `run_tests`
+(`.erify.ps1` → `executor: subagente negado (testes pelo run_tests)`).
 
 ---
 
-## Verificador rejeitado no `opencode run`
+## Verificador de docs rejeitado no `opencode run`
 
-**Sintoma:** `permission requested: shell (...); auto-rejecting` ao rodar o verificador
-num `opencode run` sem `--auto`.
+**Sintoma:** `permission requested: shell (...); auto-rejecting` ao rodar o
+`verificar_docs.py` num `opencode run` sem `--auto`.
 
-**Causa:** no modo não interativo, `shell: ask` vira rejeição automática.
+**Causa:** no modo não interativo, `bash: ask` vira rejeição automática.
 
-**Solução:** os comandos dos verificadores precisam estar em `allow` no `qwen-testes`
-(`powershell -NoProfile -ExecutionPolicy Bypass -File *verificar.ps1*`,
-`bash *verificar.sh*`, `python *verificar_docs.py*`, `python3 *verificar_docs.py*`). Já
-estão no `opencode.json`; para outro comando, use `opencode run --auto`.
+**Solução:** o `orquestrador` tem `python *verificar_docs.py*` e
+`python3 *verificar_docs.py*` em `allow` no `opencode.json`; para outro comando, use
+`opencode run --auto`.
 
 ---
 

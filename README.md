@@ -3,14 +3,17 @@
 Configuração **global** do [OpenCode](https://opencode.ai) e do
 [Claude Code](https://claude.com/claude-code) que monta um pipeline de agentes:
 **decompor → executar em paralelo (2 slots) → testar cada parte → integrar**.
-Planejamento e edição ficam com o modelo que você escolher; leitura de código e execução
-de testes vão para modelos locais via [Ollama](https://ollama.com), a custo zero.
+Planejamento e edição ficam com o modelo que você escolher; leitura de código e
+documentação vão para modelos locais via [Ollama](https://ollama.com), a custo zero, e os
+testes rodam por uma ferramenta determinística, sem modelo.
 
 Funciona em **Windows** e **Linux/macOS**, em qualquer repositório, sem precisar de
 `opencode.json` por projeto.
 
 - Config OpenCode: [`opencode/opencode.json`](opencode/opencode.json)
 - Agentes e skill do Claude Code: [`claude/`](claude/)
+- Uso com o Claude Code: [`docs/CLAUDE-CODE.md`](docs/CLAUDE-CODE.md)
+- Servidor de testes: [`mcp/run_tests/server.py`](mcp/run_tests/server.py)
 - Instalador Windows: [`install.ps1`](install.ps1)
 - Instalador Linux/macOS: [`install.sh`](install.sh)
 - Verificação: [`verify.ps1`](verify.ps1) / [`verify.sh`](verify.sh)
@@ -28,31 +31,41 @@ pedido ─► orquestrador (modelo do /models)
               │ 1. decompositor ─► PLANO: T1..Tn com arquivos exclusivos, area, rota, teste
               │ 2. no máximo SLOTS=2 subagentes por vez, respeitando dependências
               ├─► rota=edicao ─► exec-backend | exec-dados | exec-frontend | executor
-              │                     └─► qwen-testes ─► verificar.ps1|.sh (regra) ─► falhou? corrige (≤ 2x)
+              │                     └─► run_tests (MCP, regra) ─► falhou? corrige (≤ 2x)
               ├─► rota=docs ───► exec-docs (local) ─► verificar_docs.py (regra) ─► falhou? corrige (≤ 2x)
-              ├─► rota=leve ───► local-helper (local, só leitura)
+              ├─► rota=leve ───► local-helper ─► local-mini (local, só leitura)
               └─► 3. integra: confere arquivos alterados + teste do conjunto ─► relatório
 
-     local-helper, qwen-testes, exec-docs ─► Ollama 127.0.0.1:11434
+     local-helper, exec-docs, local-mini ─► Ollama 127.0.0.1:11434
                                              qwen3-12k (ctx 12288) · 2 slots · 100% GPU
 ```
 
-Só redigir e editar usam LLM. Triagem e veredito são **regra**: os scripts em
-[`scripts/`](scripts/) (instalados em `~/.orquestrador/scripts/`) dão `passou`/`falhou`/`bloqueado`
-pelo código de saída e pela saída do teste, sem modelo nenhum, e a mesma regra vale no Claude
-Code e no OpenCode.
+Só redigir e editar usam LLM. Triagem e veredito são **regra**, sem modelo nenhum: no
+OpenCode, o MCP `run_tests` dá `passou`/`falhou`/`bloqueado` pelo código de saída; no Claude
+Code, os scripts em [`scripts/`](scripts/) (instalados em `~/.orquestrador/scripts/`) dão o
+veredito pelo código de saída e pela saída do teste.
 
 | Agente | Modelo | Papel | Ferramentas permitidas |
 |---|---|---|---|
 | `orquestrador` | **nenhum pin** → segue o `/models` | coordena o pipeline, integra, revisa | tudo, com `shell`/`edit` em modo *ask* |
 | `decompositor` | herda o da sessão | quebra o pedido em tarefas (plano) | `read`, `glob`, `grep` |
-| `exec-backend` | herda o da sessão | PHP/Laravel: controllers, services, policies, jobs | `edit`, `read`, `glob`, `grep`, subagente `qwen-testes` |
+| `exec-backend` | herda o da sessão | PHP/Laravel: controllers, services, policies, jobs | `edit`, `read`, `glob`, `grep`, ferramenta `run_tests` |
 | `exec-dados` | herda o da sessão | migrations, Eloquent, SQL, índices | idem |
 | `exec-frontend` | herda o da sessão | Livewire, Blade, Alpine/JS, CSS | idem |
 | `executor` | herda o da sessão | tarefas `geral` (config, scripts, outros) | idem |
 | `exec-docs` | `ollama/qwen3-12k:latest` | Markdown (rota `docs`) | `edit` só em `*.md`, `read`, `glob` |
 | `local-helper` | `ollama/qwen3-12k:latest` | ler e explicar código (rota `leve`) | `read`, `glob` |
-| `qwen-testes` | `ollama/qwen3-12k:latest` | rodar o verificador e devolver a saída literal | `shell` (ask; verificadores liberados), `read` |
+| `local-mini` | `ollama/qwen-coder-8k:latest` | trecho pequeno e pontual (via `local-helper`) | `read` |
+| `run_tests` | servidor MCP (sem LLM) | rodar o teste e devolver saída, exit code e veredito | só comandos de teste da allowlist |
+
+**Por que `run_tests` e não um agente LLM:** rodar um comando e devolver stdout + exit code
+não exige modelo; um modelo pequeno só acrescenta o risco de "inventar" o resultado.
+Veredito: `passou` = exit 0 · `falhou` = exit ≠ 0 · `bloqueado` = recusado, inexistente ou
+timeout (tratar como *não verificado*). Allowlist: phpunit/pest, `php artisan test`,
+`composer test`, `npm|pnpm|yarn test`, vitest/jest, pytest, `go|cargo|dotnet test`,
+`mvn|gradle test`. Estenda com `ORQ_TESTS_ALLOW="regex;;regex"`. Pipes, `;`, `&`, `>` e
+`$()` são recusados; `install`, `migrate`, `db:`, `rm`, `docker`, `curl` também.
+Instalado como `orq-run-tests` em `~/.local/bin` (Windows: `.cmd` em `%USERPROFILE%\.local\bin`).
 
 O `orquestrador` **não tem modelo fixo de propósito**: o modelo ativo é o que você escolhe
 com `/models`. Trocar o modelo no `/models` troca o modelo do orquestrador (e dos agentes
@@ -61,7 +74,7 @@ que herdam o da sessão).
 Para pedidos com até 2 arquivos ou uma só área, o orquestrador trabalha direto, sem
 pipeline. Por que cada escolha (slots, 12k, especialistas por prompt, testador na GPU,
 verificador por regra, docs no modelo local):
-[`docs/ARQUITETURA.md`](docs/ARQUITETURA.md), Decisões 9–16.
+[`docs/ARQUITETURA.md`](docs/ARQUITETURA.md), Decisões 9–18.
 
 ### No Claude Code
 
@@ -219,36 +232,31 @@ O script confere:
 1. `opencode` e `ollama` disponíveis e suas versões.
 2. `opencode.json` é JSON válido e está no caminho global correto.
 3. `qwen3-12k` existe no Ollama com `num_ctx 12288`.
-4. `opencode debug agents` mostra os nove agentes e as permissões efetivas
-   (`execute: deny` nos subagentes, `shell: ask` no `qwen-testes`, `shell: deny` e
-   `subagent` só `qwen-testes` nos executores, `edit: deny` no `decompositor`, `edit` só
-   em `*.md` no `exec-docs`).
-5. Variáveis `OLLAMA_*` dos slots e se o `ollama ps` mostra uso de CPU.
-6. Agentes e skill do Claude Code em `~/.claude`.
-7. Scripts em `~/.orquestrador/scripts/`: o verificador devolve `bloqueado` para
+4. `opencode debug agents` mostra os agentes e as permissões efetivas
+   (`execute: deny` nos subagentes, `shell` e `subagent` negados nos executores, que testam
+   pelo `run_tests`, `edit: deny` no `decompositor`, `edit` só em `*.md` no `exec-docs`).
+5. O `run_tests` responde a comandos permitidos e bloqueados; o `kb` e o `nomic-embed-text`.
+6. Variáveis `OLLAMA_*` dos slots e se o `ollama ps` mostra uso de CPU.
+7. Agentes e skill do Claude Code em `~/.claude`.
+8. Scripts em `~/.orquestrador/scripts/`: o verificador devolve `bloqueado` para
    `git --version` e recusa `composer install`; o `verificar_docs.py` acusa um link quebrado.
 
-Teste de ponta a ponta com o modelo local (custa tempo, não custa dinheiro; ~100 s nesta
-máquina): `.\verify.ps1 -Smoke` ou `./verify.sh --smoke`. Ele manda ao `qwen-testes` o
-mesmo pedido que os executores mandam:
+Teste manual de ponta a ponta (custa tempo, não custa dinheiro):
 
 ```
-rode exatamente: powershell -NoProfile -ExecutionPolicy Bypass -File $HOME/.orquestrador/scripts/verificar.ps1 'git --version'
+Use run_tests para rodar: git --version
 ```
 
-Resposta esperada (a saída do script, copiada):
+Resposta esperada, no formato do agente:
 
 ```
 COMANDO: git --version
-CODIGO: 0
-SAIDA:
-git version 2.x.y...
-RESULTADO: bloqueado
+SAIDA: git version 2.x.y...
+RESULTADO: passou
 ```
 
-`bloqueado` é correto: o comando não produziu saída de teste (`OK (`, `N passed`,
-`FAILURES!`). Quem decide é o script, não o modelo. Se o agente inventar contagem de
-testes, veja [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
+`passou` = exit code 0 real. Se o agente inventar contagem de testes, veja
+[`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
 ---
 
@@ -257,20 +265,18 @@ testes, veja [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 Os subagentes rodam com o **mínimo de ferramentas** e uma lista explícita de negações:
 
 - `edit`, `execute` (Code Mode), `subagent`, `question`, `webfetch`, `websearch`,
-  `external_directory` — negados nos dois subagentes locais;
+  `external_directory` — negados nos subagentes locais;
 - `read` de `*.env`, `*.env.*`, `*.pem`, `*.key`, `*id_rsa*` — negado em todos os
   subagentes (`*.env.example` liberado por ser template);
-- `qwen-testes`: `composer *`, `npm *`, `php artisan migrate*`, `php artisan db:*`,
-  `docker *`, `Remove-Item *`, `rm *` — negados; os comandos dos verificadores
-  (`verificar.ps1`, `verificar.sh`, `verificar_docs.py`) liberados, e os próprios
-  verificadores recusam a mesma lista;
+- `run_tests`: só comandos da allowlist; recusa `install`, `migrate`, `db:`, `rm`, `docker`,
+  `curl` e qualquer encadeamento (`; & | > $()`);
 - `exec-docs`: `edit` negado em tudo e liberado só em `*.md`; sem `shell`, `grep` e
   subagente;
 - `decompositor`: só lê (`edit`, `shell`, `subagent` negados);
 - executores (`exec-*`, `executor`): **editam sem pedir confirmação** (subagente não tem
   prompt de permissão, ver Decisão 5), mas não rodam `shell`, não editam `.env`/chaves e
-  só podem acionar o `qwen-testes`. Revise o `git diff` que o orquestrador apresenta no
-  relatório final.
+  não acionam subagente: testam só pelo `run_tests`. Revise o `git diff` que o
+  orquestrador apresenta no relatório final.
 
 Regras de permissão são avaliadas em ordem e **o último match vence**; por isso as
 negações específicas vêm depois do `*: allow` padrão.
@@ -289,10 +295,14 @@ orquestrador/
 ├── opencode/
 │   └── opencode.json            # config global (sem segredos)
 ├── claude/
-│   ├── agents/                  # decompositor, exec-*, executor, exec-docs, testador
+│   ├── agents/                  # decompositor, exec-*, executor, exec-docs, testador, triagem
+│   ├── CLAUDE.snippet.md        # trecho de CLAUDE.md (ver docs/CLAUDE-CODE.md)
 │   └── skills/orquestrar/       # skill /orquestrar (SLOTS no topo)
 ├── scripts/                     # verificar.sh/.ps1, verificar_docs.py, redigir_docs.py
 ├── tests/                       # testes dos scripts (unittest, sem GPU)
+├── mcp/
+│   ├── run_tests/server.py      # MCP: testes com saída condensada
+│   └── kb/kb.py                 # MCP + CLI: base de conhecimento por app (BM25 + embeddings opcionais)
 ├── docs/
 │   ├── AMBIENTE.md              # setup exato onde foi validado
 │   ├── ARQUITETURA.md           # decisões, permissões e evidências

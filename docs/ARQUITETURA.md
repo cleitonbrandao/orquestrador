@@ -4,7 +4,7 @@ Documento do **porquê** de cada escolha, com a evidência que sustentou a decis
 
 ## Visão geral
 
-Nove agentes em um pipeline **triar → decompor → executar em slots → verificar → integrar**
+Oito agentes e um servidor MCP em um pipeline **triar → decompor → executar em slots → verificar → integrar**
 (esboço original em [`esboco_possivel_estrutura.png`](esboco_possivel_estrutura.png)):
 
 ```
@@ -15,21 +15,22 @@ pedido ─► orquestrador ─► triagem por regra (Decisão 15)
               │  no máximo SLOTS=2 Task por mensagem, só tarefas com dependências prontas
               ├─► rota=edicao ─► exec-backend | exec-dados | exec-frontend | executor
               │                      │ edita só os arquivos da tarefa
-              │                      └─► qwen-testes (aninhado) ─► verificar.ps1|.sh ─► passou?
+              │                      └─► run_tests (MCP, Decisão 17) ─► passou?
               │                             falhou ─► volta ao mesmo executor (≤ 2x) ─► bloqueado
-              ├─► rota=docs ───► exec-docs (local) ─► qwen-testes ─► verificar_docs.py (Decisão 16)
-              ├─► rota=leve ───► local-helper (só leitura)
-              └─► integração: confere arquivos alterados + verificador no teste do conjunto
+              ├─► rota=docs ───► exec-docs (local) ─► verificar_docs.py pelo orquestrador (Decisão 16)
+              ├─► rota=leve ───► local-helper ─► local-mini (só leitura)
+              └─► integração: confere arquivos alterados + run_tests no teste do conjunto
 ```
 
 | Agente | Modo | Modelo | Ferramentas |
 |---|---|---|---|
 | `orquestrador` | `primary` | **nenhum** (segue `/models`) | tudo; `shell` e `edit` em `ask` |
 | `decompositor` | `subagent` | nenhum (herda o da sessão) | `read`, `glob`, `grep` |
-| `exec-backend` / `exec-dados` / `exec-frontend` / `executor` | `subagent` | nenhum (herda o da sessão) | `edit`, `read`, `glob`, `grep`; `subagent` só `qwen-testes` |
+| `exec-backend` / `exec-dados` / `exec-frontend` / `executor` | `subagent` | nenhum (herda o da sessão) | `edit`, `read`, `glob`, `grep`, ferramenta `run_tests`; `shell` e `subagent` negados |
 | `exec-docs` | `subagent` | `ollama/qwen3-12k:latest` | `edit` só em `*.md`, `read`, `glob` |
-| `local-helper` | `subagent` | `ollama/qwen3-12k:latest` | `read`, `glob` |
-| `qwen-testes` | `subagent` | `ollama/qwen3-12k:latest` | `shell` (ask; verificadores em allow), `read` |
+| `local-helper` | `subagent` | `ollama/qwen3-12k:latest` | `read`, `glob`, `kb_search_kb`; `subagent` só `local-mini` |
+| `local-mini` | `subagent` | `ollama/qwen-coder-8k:latest` | `read` |
+| `run_tests` | servidor MCP (sem LLM) | — | só comandos de teste da allowlist |
 
 O objetivo é econômico: leitura de código e execução de testes são as operações mais
 frequentes e mais mecânicas. Mandá-las para um modelo local de 8B custa US$ 0,00 e
@@ -104,8 +105,8 @@ com `qwen3:8b` veio preenchido e o `shell` executou de verdade.
 
 ## Decisão 5 — Segurança por `deny`, não por `ask`
 
-**O que foi feito:** subagentes com lista de `deny` explícita; `shell` do `qwen-testes`
-como `ask`.
+**O que foi feito:** subagentes com lista de `deny` explícita; `shell` do antigo `qwen-testes`
+como `ask` (hoje substituído pelo `run_tests`).
 
 **Por quê:** em subagente, uma regra `ask` **não abre prompt** — o log não mostra pedido
 de permissão e o comando executa. Só `deny` realmente barra.
@@ -129,7 +130,7 @@ Inverter a ordem faz o `composer *` ser sobrescrito pelo `*`.
 
 ## Decisão 7 — Poucas ferramentas por agente
 
-`local-helper` não tem `grep`, `shell`, `edit` nem `execute`. `qwen-testes` não tem
+`local-helper` não tem `grep`, `shell`, `edit` nem `execute`. o antigo `qwen-testes` não tinha
 `edit`, `glob`, `grep` nem `execute`.
 
 **Por quê:** cada ferramenta extra é uma chance de o modelo de 8B escolher errado. Um
@@ -142,7 +143,7 @@ entrar em loop. A busca fica com o orquestrador, que passa os arquivos já local
 ## Decisão 8 — `execute` (Code Mode) negado nos subagentes
 
 Code Mode dá ao modelo um runtime JavaScript com acesso a ferramentas. Em um modelo local
-de 8B o resultado é imprevisível e foge da auditoria linha a linha. O `qwen-testes` usa
+de 8B o resultado é imprevisível e foge da auditoria linha a linha. O antigo `qwen-testes` usava
 `shell` direto: um comando, uma saída, uma evidência.
 
 ## Decisão 9 — Pipeline com contrato de plano
@@ -167,6 +168,9 @@ O orquestrador rejeita o plano se houver arquivo compartilhado sem dependência 
 faltar critério.
 
 ## Decisão 10 — Testador aninhado no executor, com teto de retorno
+
+> No OpenCode, o `qwen-testes` aninhado foi substituído pela ferramenta `run_tests`
+> (Decisão 17). O teto de retorno continua valendo.
 
 **O que foi feito:** cada executor tem `subagent: * deny` seguido de
 `subagent: qwen-testes allow`. Ele mesmo testa e corrige até 2 vezes; o orquestrador
@@ -239,6 +243,9 @@ para o modelo de 8B.
 Reavaliar com uma CPU mais rápida ou uma GPU com folga para um segundo modelo.
 
 ## Decisão 14 — Veredito de teste por script, não por modelo
+
+> No OpenCode, o `qwen-testes` saiu: o veredito vem do `run_tests` (Decisão 17). No Claude
+> Code, continua o `verificar.sh` descrito aqui.
 
 **O que foi feito:** `scripts/verificar.sh` e `scripts/verificar.ps1` (instalados em
 `~/.orquestrador/scripts/`) rodam um comando uma vez e decidem `passou`/`falhou`/`bloqueado`
@@ -337,14 +344,47 @@ veredito correto é **`bloqueado`**, não `passou`.
 
 Sem os scripts instalados, o `qwen-testes` e o `testador` aplicam a regra antiga
 (`passou` só com `OK (`; `falhou` só com `FAILURES!`/`ERRORS!`).
+## Decisão 17 — `qwen-testes` (LLM) substituído por `run_tests` (MCP)
+
+**O que foi feito:** o agente LLM que executava testes virou um servidor MCP determinístico
+(`mcp/run_tests/server.py`, só biblioteca padrão). No OpenCode, os executores do pipeline
+chamam a ferramenta `run_tests` direto, em vez de aninhar o `qwen-testes` (Decisões 10 e 14),
+e perderam `subagent`; o orquestrador roda o `verificar_docs.py` pelo próprio shell, com
+`allow` só para esse comando. No Claude Code nada muda: o agente principal segue rodando
+o `verificar.sh` (Decisão 14).
+
+**Diferença de contrato:** o `run_tests` decide só pelo exit code (`git --version` →
+`passou`); o `verificar.sh` também exige saída de teste (`git --version` → `bloqueado`).
+
+**Por quê:** rodar um comando e devolver stdout + exit code não exige modelo. O agente LLM
+só acrescentava o risco de inventar saída e dependia de ler `OK (` (formato PHPUnit), o que
+não vale para pest/jest/pytest.
+
+**Contrato:** `passou` = exit 0 · `falhou` = exit ≠ 0 · `bloqueado` = comando recusado,
+inexistente, cwd inválido ou timeout. `bloqueado` significa *não verificado*.
+
+**Segurança:** allowlist de comandos de teste + lista de negação (`install`, `migrate`,
+`db:`, `rm`, `docker`, `curl`...), execução sem shell (`shlex`), metacaracteres
+(`; & | > < $()`) recusados, timeout (padrão 300 s, máx. 1800 s), saída truncada em 16 KB.
+Isso substitui o `deny` por padrão de shell do antigo agente, que só barrava por prefixo.
+
+**Evidência (2026-10-23, Linux):** `git --version` → `passou`; `composer install` e
+`git --version; rm -rf x` → `bloqueado`; `pytest` inexistente → `bloqueado`; cwd inexistente
+→ `bloqueado`. Reproduzível com `./verify.sh`. **Não validado ainda** dentro do OpenCode V2
+(ver pendência abaixo) nem no Windows.
+
+## Decisão 18 — Busca semântica local (`kb` + `nomic-embed-text`)
+
+O MCP `kb` (`mcp/kb/kb.py`) combina BM25 com embeddings do `nomic-embed-text` (Ollama `/api/embed`),
+e está registrado nos dois lados: Claude Code (escopo user) e OpenCode (`mcp.kb` em
+`opencode/opencode.json`, ferramenta `kb_search_kb`). O modelo não gera texto, então fica fora do
+`scripts/testar-modelo.sh`. Um app só tem busca semântica se foi indexado com o modelo presente;
+`./verify.sh` avisa os apps com 0 embeddings. Detalhes e custo de indexação em `CLAUDE-CODE.md`.
 
 ## Evidências de validação (2026-10-23, OpenCode v2.1.3)
 
 | Teste | Resultado observado |
 |---|---|
-| `qwen-testes` → `git --version` | executou, saída literal, exit 0 |
-| `qwen-testes` → `./vendor/bin/phpunit` (inexistente) | `CommandNotFoundException`, exit 1, veredito `bloqueado` |
-| `qwen-testes` → `composer install` | `permission.rejected`, **não executou** |
 | `local-helper` → `read app/phpunit.xml.dist` | devolveu `sqlite` / `Unit, Feature` |
 | `local-helper` → `read` de arquivo inexistente | `File not found`, sem invenção |
 | `local-helper` → `read app/.env` | `permission.rejected` |

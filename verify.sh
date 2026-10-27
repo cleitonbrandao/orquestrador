@@ -3,11 +3,10 @@
 set -uo pipefail
 
 EXPECTED_MODEL="qwen3-12k:latest"
-SMOKE=0
 
 for arg in "$@"; do
   case "$arg" in
-    --smoke) SMOKE=1 ;;
+    --smoke) ;; # mantido por compatibilidade; o teste do run_tests agora é sempre executado
     -h|--help)
       echo "Uso: ./verify.sh [--smoke]"
       exit 0 ;;
@@ -52,7 +51,7 @@ else
       const ag = Object.keys(c.agents || {});
       console.log("  \x1b[32mok\x1b[0m  JSON válido");
       console.log("  \x1b[32mok\x1b[0m  default_agent: " + (c.default_agent || "(nao definido)"));
-      for (const id of ["orquestrador","decompositor","executor","exec-backend","exec-dados","exec-frontend","exec-docs","local-helper","qwen-testes"])
+      for (const id of ["orquestrador","decompositor","executor","exec-backend","exec-dados","exec-frontend","exec-docs","local-helper"])
         console.log((ag.includes(id) ? "  \x1b[32mok\x1b[0m  agente presente: " : "  \x1b[31mx\x1b[0m   agente ausente: ") + id);
       if (c.agents && c.agents.orquestrador && c.agents.orquestrador.model)
         console.log("  \x1b[33m!\x1b[0m   orquestrador tem model fixo (" + c.agents.orquestrador.model + "); /models nao governa");
@@ -71,7 +70,7 @@ cfg = json.load(open(sys.argv[1], encoding="utf-8"))
 ag = list((cfg.get("agents") or {}).keys())
 print("  ok  JSON válido")
 print("  ok  default_agent: " + str(cfg.get("default_agent") or "(nao definido)"))
-EXPECTED = ("orquestrador", "decompositor", "executor", "exec-backend", "exec-dados", "exec-frontend", "exec-docs", "local-helper", "qwen-testes")
+EXPECTED = ("orquestrador", "decompositor", "executor", "exec-backend", "exec-dados", "exec-frontend", "exec-docs", "local-helper")
 for i in EXPECTED:
     print(("  ok  agente presente: " if i in ag else "  x   agente ausente: ") + i)
 orc = (cfg.get("agents") or {}).get("orquestrador") or {}
@@ -130,7 +129,7 @@ if command -v opencode >/dev/null 2>&1; then
           console.log("  ok  " + list.length + " agentes carregados");
           let fails = 0;
           const g = id => list.find(x => x.id === id);
-          for (const id of ["local-helper", "qwen-testes"]) {
+          for (const id of ["local-helper"]) {
             const ag = g(id);
             if (!ag) { console.log("  x   agente não carregado: " + id); fails++; continue; }
             if (ag.model) console.log("  ok  " + id + ": " + ag.model.providerID + "/" + ag.model.id);
@@ -141,32 +140,23 @@ if command -v opencode >/dev/null 2>&1; then
             if (has("edit", "deny")) console.log("  ok  " + id + ": edit negado"); else { console.log("  x   " + id + ": edit NAO negado"); fails++; }
             if (has("read", "deny", /(^|\*)\.env$/)) console.log("  ok  " + id + ": leitura de *.env negada"); else console.log("  !   " + id + ": *.env nao negado");
           }
-          const qt = g("qwen-testes");
-          if (qt) {
-            const p = qt.permissions || [];
-            const blocks = p.filter(x => x.action === "shell" && x.effect === "deny" && /^(composer \*|npm \*|docker \*)/.test(x.resource));
-            if (blocks.length >= 3) console.log("  ok  qwen-testes: composer/npm/docker negados");
-            else { console.log("  x   qwen-testes: faltam negacoes de shell (composer/npm/docker)"); fails++; }
-            if (p.some(x => x.action === "shell" && x.resource === "*" && x.effect === "ask")) console.log("  ok  qwen-testes: shell em modo ask");
-            else console.log("  !   qwen-testes: shell nao esta em ask");
-          }
           const orc = g("orquestrador");
           if (orc) {
-            const n = (orc.permissions || []).filter(x => x.action === "subagent" && x.effect === "allow").length;
+            const n = (orc.permissions || []).filter(x => ["subagent","task"].includes(x.action) && x.effect === "allow").length;
             console.log("  ok  orquestrador: " + n + " delegacoes permitidas");
             if (n === 0) { console.log("  x   orquestrador: nenhuma delegacao permitida"); fails++; }
             for (const id of ["decompositor", "executor", "exec-backend", "exec-dados", "exec-frontend", "exec-docs"]) {
-              if ((orc.permissions || []).some(x => x.action === "subagent" && x.resource === id && x.effect === "allow")) console.log("  ok  orquestrador: pode delegar ao " + id);
+              if ((orc.permissions || []).some(x => ["subagent","task"].includes(x.action) && x.resource === id && x.effect === "allow")) console.log("  ok  orquestrador: pode delegar ao " + id);
               else { console.log("  x   orquestrador: delegacao ao " + id + " nao permitida"); fails++; }
             }
           }
-          // Pipeline: decompositor só lê; executor edita mas não roda shell e só aciona o qwen-testes.
+          // Pipeline: decompositor só lê; executor edita, não roda shell nem subagente e testa pelo run_tests.
           const dec = g("decompositor");
           if (!dec) { console.log("  x   agente não carregado: decompositor"); fails++; }
           else {
             const p = dec.permissions || [];
             for (const act of ["edit", "shell"]) {
-              if (p.some(x => x.action === act && x.resource === "*" && x.effect === "deny")) console.log("  ok  decompositor: " + act + " negado");
+              if (p.some(x => (x.action === act || x.action === ({shell:"bash",subagent:"task"})[act]) && x.resource === "*" && x.effect === "deny")) console.log("  ok  decompositor: " + act + " negado");
               else { console.log("  x   decompositor: " + act + " NAO negado"); fails++; }
             }
           }
@@ -174,12 +164,10 @@ if command -v opencode >/dev/null 2>&1; then
             const exe = g(id);
             if (!exe) { console.log("  x   agente não carregado: " + id); fails++; continue; }
             const p = exe.permissions || [];
-            if (p.some(x => x.action === "shell" && x.resource === "*" && x.effect === "deny")) console.log("  ok  " + id + ": shell negado");
+            if (p.some(x => ["shell","bash"].includes(x.action) && x.resource === "*" && x.effect === "deny")) console.log("  ok  " + id + ": shell negado");
             else { console.log("  x   " + id + ": shell NAO negado"); fails++; }
-            const subs = p.filter(x => x.action === "subagent");
-            const last = subs[subs.length - 1];
-            if (last && last.resource === "qwen-testes" && last.effect === "allow") console.log("  ok  " + id + ": só delega ao qwen-testes");
-            else { console.log("  x   " + id + ": regra de subagente diferente de qwen-testes allow no fim"); fails++; }
+            if (p.some(x => ["subagent","task"].includes(x.action) && x.resource === "*" && x.effect === "deny")) console.log("  ok  " + id + ": subagente negado (testes pelo run_tests)");
+            else { console.log("  x   " + id + ": subagente NAO negado"); fails++; }
           }
           // exec-docs: modelo local, edita só Markdown, sem shell e sem subagente
           const doc = g("exec-docs");
@@ -191,7 +179,7 @@ if command -v opencode >/dev/null 2>&1; then
             if (p.some(x => x.action === "edit" && x.resource === "*" && x.effect === "deny") && lastEdit && lastEdit.resource === "*.md" && lastEdit.effect === "allow") console.log("  ok  exec-docs: edita só *.md");
             else { console.log("  x   exec-docs: edit não está restrito a *.md"); fails++; }
             for (const act of ["shell", "subagent"]) {
-              if (p.some(x => x.action === act && x.resource === "*" && x.effect === "deny")) console.log("  ok  exec-docs: " + act + " negado");
+              if (p.some(x => (x.action === act || x.action === ({shell:"bash",subagent:"task"})[act]) && x.resource === "*" && x.effect === "deny")) console.log("  ok  exec-docs: " + act + " negado");
               else { console.log("  x   exec-docs: " + act + " NAO negado"); fails++; }
             }
           }
@@ -209,7 +197,7 @@ list_ = json.loads(s[a:b+1])
 print("  ok  %d agentes carregados" % len(list_))
 g = {x["id"]: x for x in list_}
 fails = 0
-for i in ("local-helper", "qwen-testes"):
+for i in ("local-helper",):
     ag = g.get(i)
     if not ag:
         print("  x   agente nao carregado: " + i); fails += 1; continue
@@ -219,18 +207,11 @@ for i in ("local-helper", "qwen-testes"):
     has = lambda act, eff, rx=None: any(x["action"] == act and x["effect"] == eff and (rx is None or re.search(rx, x["resource"])) for x in p)
     print(("  ok  %s: execute negado" % i) if has("execute","deny") else ("  x   %s: execute NAO negado" % i)); fails += 0 if has("execute","deny") else 1
     print(("  ok  %s: edit negado" % i) if has("edit","deny") else ("  x   %s: edit NAO negado" % i)); fails += 0 if has("edit","deny") else 1
-qt = g.get("qwen-testes")
-if qt:
-    p = qt.get("permissions") or []
-    n = len([x for x in p if x["action"] == "shell" and x["effect"] == "deny" and re.match(r"(composer \*|npm \*|docker \*)", x["resource"])])
-    print("  ok  qwen-testes: composer/npm/docker negados" if n >= 3 else "  x   qwen-testes: faltam negacoes")
-    fails += 0 if n >= 3 else 1
 sys.exit(1 if fails else 0)
 '
     fi
   else
     printf '%s' "$raw" | grep -q '"id": "local-helper"' && ok "local-helper carregado" || bad "local-helper não carregado"
-    printf '%s' "$raw" | grep -q '"id": "qwen-testes"' && ok "qwen-testes carregado" || bad "qwen-testes não carregado"
     printf '%s' "$raw" | grep -q '"id": "orquestrador"' && ok "orquestrador carregado" || bad "orquestrador não carregado"
     warn "node/python3 ausentes: permissões não foram verificadas em detalhe"
   fi
@@ -291,24 +272,46 @@ elif [ -f "$SCRIPTS_DIR/verificar_docs.py" ]; then
   fi
 fi
 
-if [ "$SMOKE" -eq 1 ]; then
-  step "Teste real de delegação (qwen-testes)"
-  if ! command -v opencode >/dev/null 2>&1; then
-    bad "opencode indisponível para o teste"
+step "Servidor MCP run_tests"
+RT="$(command -v orq-run-tests || true)"
+if [ -z "$RT" ]; then
+  bad "orq-run-tests não está no PATH (rode ./install.sh)"
+elif ! command -v python3 >/dev/null 2>&1; then
+  bad "python3 ausente"
+else
+  ok "launcher: $RT"
+  rt_call() { # $1 = comando a testar
+    printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+      "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"run_tests\",\"arguments\":{\"command\":\"$1\"}}}" \
+      | "$RT" | tail -n 1
+  }
+  rt_call "git --version" | grep -q '"verdict": "passou"' && ok "git --version -> passou (exit 0 real)" || bad "run_tests não executou comando permitido"
+  rt_call "composer install" | grep -q '"verdict": "bloqueado"' && ok "composer install -> bloqueado" || bad "run_tests deixou passar comando negado"
+  rt_call "git --version; rm -rf x" | grep -q '"verdict": "bloqueado"' && ok "encadeamento com ; -> bloqueado" || bad "run_tests aceitou metacaracteres"
+fi
+
+step "Base de conhecimento (kb e embeddings)"
+KB="$(command -v orq-kb || true)"
+if [ -z "$KB" ]; then
+  bad "orq-kb não está no PATH (rode ./install.sh)"
+else
+  ok "launcher: $KB"
+  if command -v ollama >/dev/null 2>&1 && ollama list 2>/dev/null | grep -q '^nomic-embed-text'; then
+    ok "nomic-embed-text instalado (busca semântica)"
   else
-    # o mesmo pedido que os executores mandam: o verificador com o comando dentro
-    pedido="rode exatamente: bash ~/.orquestrador/scripts/verificar.sh 'git --version'"
-    echo "  rodando: opencode run --agent qwen-testes --model ollama/$EXPECTED_MODEL \"$pedido\""
-    start=$(date +%s)
-    out="$(opencode run --agent qwen-testes --model "ollama/$EXPECTED_MODEL" "$pedido" 2>&1 || true)"
-    end=$(date +%s)
-    printf '%s\n' "$out"
-    if printf '%s' "$out" | grep -q "git version" && printf '%s' "$out" | grep -q "RESULTADO: bloqueado"; then
-      ok "verificador executado pelo qwen-testes ($((end-start))s)"
-    else
-      bad "a saída não contém 'git version' com RESULTADO: bloqueado — o verificador pode não ter rodado"
-    fi
+    warn "nomic-embed-text ausente: a busca do kb fica só em BM25 (ollama pull nomic-embed-text)"
   fi
+  if command -v opencode >/dev/null 2>&1; then
+    mcp_out="$(timeout 60 opencode mcp list 2>&1 | sed 's/\x1b\[[0-9;]*m//g' || true)"
+    if printf '%s' "$mcp_out" | grep -Eq '✓ kb .*connected|kb +connected'; then ok "OpenCode: MCP kb conectado"
+    else bad "OpenCode: MCP kb não conectado (confira mcp.kb em opencode.json)"; fi
+  fi
+  # apps indexados sem embedding: a busca semântica não os cobre
+  while IFS= read -r linha; do
+    case "$linha" in
+      *" 0 com embedding"*) warn "kb: ${linha%%:*} sem embeddings (rode 'orq-kb index' na raiz desse projeto)" ;;
+    esac
+  done < <("$KB" apps 2>/dev/null)
 fi
 
 step "Resultado"

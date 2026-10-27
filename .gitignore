@@ -18,6 +18,13 @@ opencode.json.backup*
 Thumbs.db
 desktop.ini
 
+# cache de telemetria local
+graft/
+
 # Python
 __pycache__/
 *.pyc
+
+# Testes de modelos: só o CSV consolidado é versionado
+docs/resultados/*/
+docs/resultados/relatorio.html
