@@ -141,7 +141,7 @@ while true; do
     /list|/l)   python3 -I "$RELATORIO" lista --instalados "$(instalados)" ;;
     /ver|/v)    python3 -I "$RELATORIO" ver "${args[@]}" ;;
     /report)    python3 -I "$RELATORIO" html --instalados "$(instalados)" --abrir ;;
-    /list-fluxo-ia | /fluxo) python "$RAIZ/scripts/fluxo_ia.py" ;;
+    /list-fluxo-ia | /fluxo) python3 "$RAIZ/scripts/fluxo_ia.py" ;;
     /clean|/c)  limpar "$(alvo_de "${args[@]}")"; LIMPO=1 ;;
     /restore)   restaurar ;;
     /ram)       estado ;;

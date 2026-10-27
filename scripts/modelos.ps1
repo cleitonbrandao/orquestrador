@@ -185,7 +185,7 @@ try {
                 '^/(nota|n)$' { Invoke-Py $RELATORIO nota; break }
                 '^/(list|l)$' { Invoke-Py $RELATORIO lista --instalados (Instalados); break }
                 '^/(ver|v)$' { Invoke-Py $RELATORIO ver @resto; break }
-                '^/(list-fluxo-ia|fluxo)$' { python "$RAIZ\scripts\fluxo_ia.py"; break }
+                '^/(list-fluxo-ia|fluxo)$' { Invoke-Py "$RAIZ\scripts\fluxo_ia.py"; break }
                 '^/report$' { Invoke-Py $RELATORIO html --instalados (Instalados) --abrir; break }
                 '^/(clean|c)$' { Limpar (Alvo-De $resto); $script:LIMPO = $true; break }
                 '^/restore$' { $null = Restaurar; break }
