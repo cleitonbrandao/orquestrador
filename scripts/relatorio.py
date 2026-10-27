@@ -207,17 +207,28 @@ def cmd_nota(ultimos, caminho, **_):
 def cmd_lista(ultimos, caminho, instalados=(), **_):
     cabecalho("Modelos testados e pendentes", icone=I_FRASCO, cor_fundo=AZUL)
     testados = {r["modelo"].removesuffix(":latest") for r in ultimos}
+    instalados_set = {m.removesuffix(":latest") for m in instalados} if instalados else None
     if ultimos:
         linhas = []
         for r in sorted(ultimos, key=lambda r: (r["modelo"], r["thinking"])):
             n = int(num(r["nota"]))
+            nome_base = r["modelo"].removesuffix(":latest")
+            instalado_local = (instalados_set is None) or (nome_base in instalados_set)
+            
+            icone = I_OK if instalado_local else apagado("⊘")
+            cor_icone = cor(VERDE, I_OK) if instalado_local else apagado("⊘")
+            nome_str = r["modelo"] if instalado_local else f"{r['modelo']} (removido)"
+            estilo_nome = negrito(r["modelo"]) if instalado_local else apagado(f"{r['modelo']} (removido)")
+            
             linhas.append([
-                (I_OK, cor(VERDE, I_OK)), (r["modelo"], negrito(r["modelo"])), (r["thinking"], apagado(r["thinking"])),
+                (icone, cor_icone), (nome_str, estilo_nome), (r["thinking"], apagado(r["thinking"])),
                 (n, cor_nota(n)), ("A B C D", marcas(r)), (f"{num(r['tok_s_geracao']):.1f}", ciano(f"{num(r['tok_s_geracao']):.1f}")),
                 (r["data"][:10], apagado(r["data"][:10])),
             ])
         tabela([("", 1, "<"), ("MODELO", 28, "<"), ("THINK", 5, "<"), ("NOTA", 4, ">"),
                 ("A B C D", 7, "<"), ("TOK/S", 6, ">"), ("DATA", 10, "<")], linhas)
+        print()
+        print(apagado("  [OK] instalado localmente    [⊘] resultado salvo, mas modelo removido (/prune)"))
     else:
         sem_dados(caminho)
     pendentes = [m for m in instalados if m.removesuffix(":latest") not in testados]
