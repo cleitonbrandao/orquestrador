@@ -162,32 +162,37 @@ try {
         $resto = @()
         if ($partes.Count -gt 1) { $resto = @($partes[1..($partes.Count - 1)]) }
 
-        switch -Regex ($cmd) {
-            '^/(test|t)$' {
-                Preparar $resto
-                $h = Para-Splat $resto
-                & $TESTAR @h
-                break
+        # um erro em um comando não pode derrubar o terminal (e a restauração dos containers)
+        try {
+            switch -Regex ($cmd) {
+                '^/(test|t)$' {
+                    Preparar $resto
+                    $h = Para-Splat $resto
+                    & $TESTAR @h
+                    break
+                }
+                '^/(bench|benchmark|b)$' {
+                    Preparar $resto
+                    $h = Para-Splat $resto
+                    & $TESTAR -Velocidade @h
+                    break
+                }
+                '^/(rank|r)$' { Invoke-Py $RELATORIO rank; break }
+                '^/(nota|n)$' { Invoke-Py $RELATORIO nota; break }
+                '^/(list|l)$' { Invoke-Py $RELATORIO lista --instalados (Instalados); break }
+                '^/(ver|v)$' { Invoke-Py $RELATORIO ver @resto; break }
+                '^/report$' { Invoke-Py $RELATORIO html --instalados (Instalados) --abrir; break }
+                '^/(clean|c)$' { Limpar (Alvo-De $resto); $script:LIMPO = $true; break }
+                '^/restore$' { $null = Restaurar; break }
+                '^/ram$' { Estado; break }
+                '^/(prune|remover)$' { $h = Para-Splat-Prune $resto; & $PODAR @h; break }
+                '^/(help|h|\?)$' { Ajuda; break }
+                '^/(quit|exit|q)$' { return }
+                '^/' { Write-Host ((Fg $PAL.Verm) + "$($ICO.Xis) comando desconhecido: $cmd" + (Rs) + " (digite /help)"); break }
+                default { Write-Host "os comandos começam com /. Digite /help." }
             }
-            '^/(bench|benchmark|b)$' {
-                Preparar $resto
-                $h = Para-Splat $resto
-                & $TESTAR -Velocidade @h
-                break
-            }
-            '^/(rank|r)$' { Invoke-Py $RELATORIO rank; break }
-            '^/(nota|n)$' { Invoke-Py $RELATORIO nota; break }
-            '^/(list|l)$' { Invoke-Py $RELATORIO lista --instalados (Instalados); break }
-            '^/(ver|v)$' { Invoke-Py $RELATORIO ver @resto; break }
-            '^/report$' { Invoke-Py $RELATORIO html --instalados (Instalados) --abrir; break }
-            '^/(clean|c)$' { Limpar (Alvo-De $resto); $script:LIMPO = $true; break }
-            '^/restore$' { $null = Restaurar; break }
-            '^/ram$' { Estado; break }
-            '^/(prune|remover)$' { $h = Para-Splat-Prune $resto; & $PODAR @h; break }
-            '^/(help|h|\?)$' { Ajuda; break }
-            '^/(quit|exit|q)$' { return }
-            '^/' { Write-Host ((Fg $PAL.Verm) + "$($ICO.Xis) comando desconhecido: $cmd" + (Rs) + " (digite /help)"); break }
-            default { Write-Host "os comandos começam com /. Digite /help." }
+        } catch {
+            Write-Host ((Fg $PAL.Verm) + "$($ICO.Xis) erro: $($_.Exception.Message)" + (Rs))
         }
         Write-Host ""
     }

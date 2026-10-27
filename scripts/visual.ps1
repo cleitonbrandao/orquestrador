@@ -59,7 +59,7 @@ function Set-Icones {
         $script:S_CAP_E = [string][char]0x2590; $script:S_SEP = [string][char]0x258C; $script:S_CAP_D = [string][char]0x258C
         $script:ICO = @{
             Chip = [string][char]0x25A3; Bolt = [string][char]0x25B2; Trofeu = [string][char]0x2605; Check = [string][char]0x2714; Xis = [string][char]0x2718
-            Frasco = [string][char]0x25C6; Docker = [string][char]0x25A4; Codigo = "<>"; Engr = [string][char]0x2699; Painel = [string][char]0x25A6
+            Frasco = [string][char]0x25C6; Docker = [string][char]0x25A4; Codigo = "<>"; Engr = [string][char]0x25C8; Painel = [string][char]0x25A6
         }
     } else {
         $script:S_CAP_E = "["; $script:S_SEP = ""; $script:S_CAP_D = "]"

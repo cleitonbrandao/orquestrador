@@ -28,8 +28,8 @@ function Get-Python {
     return $null
 }
 function Invoke-Py {
-    $py = Get-Python
-    if (-not $py) { throw "python não encontrado (necessário para o avaliador e os rankings)" }
+    $py = @(Get-Python)   # @(): sem isso, um único valor vira string e $py[0] seria só a 1ª letra
+    if ($py.Count -eq 0 -or -not $py[0]) { throw "python não encontrado (necessário para o avaliador e os rankings)" }
     $exe = $py[0]
     $pre = @()
     if ($py.Count -gt 1) { $pre = $py[1..($py.Count - 1)] }

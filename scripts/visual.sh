@@ -52,7 +52,7 @@ case "$(_icones_modo)" in
   unicode)
   S_CAP_E="▐"; S_SEP="▌"; S_CAP_D="▌"
   I_OK="✔"; I_FALHA="✘"; I_RAM="▣"; I_RAPIDO="▲"; I_NOTA="★"; I_TESTE="◆"; I_PRONTO="✔"
-  I_DOCKER="▤"; I_BANCO="▤"; I_RELOGIO="◷"; I_CODIGO="‹›"; I_ENGR="⚙"; I_PAINEL="▦"
+  I_DOCKER="▤"; I_BANCO="▤"; I_RELOGIO="◷"; I_CODIGO="‹›"; I_ENGR="◈"; I_PAINEL="▦"
   I_FRASCO="◆"; I_BOLT="▲"; I_TROFEU="★"; I_CHIP="▣"; I_CHECK="✔"; I_XIS="✘"
   ;;
   *)
