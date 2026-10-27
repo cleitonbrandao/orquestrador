@@ -2,7 +2,9 @@
   "$schema": "https://opencode.ai/config.json",
   "plugin": ["opencode-antigravity-auth@latest"],
   "default_agent": "orquestrador",
-
+  "experimental": {
+    "subagent_depth": 2
+  },
   "provider": {
     "google": {
       "npm": "@ai-sdk/google",
@@ -109,267 +111,113 @@
           }
         }
       }
+    },
+    "ollama": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Ollama (local)",
+      "options": {
+        "baseURL": "http://localhost:11434/v1"
+      },
+      "models": {
+        "qwen3-16k:latest": {
+          "name": "Qwen3.5 2B · 16k (local-helper)",
+          "body": {
+            "reasoning_effort": "none"
+          },
+          "capabilities": {
+            "reasoning": {
+              "supported": false
+            }
+          },
+          "limit": {
+            "context": 16384,
+            "output": 4096
+          }
+        },
+        "qwen-coder-8k:latest": {
+          "name": "Qwen2.5 Coder 1.5B · 8k (local-mini)",
+          "limit": {
+            "context": 8192,
+            "output": 2048
+          }
+        }
+      }
     }
   },
-
   "mcp": {
     "trail": {
       "type": "local",
       "command": ["trail", "mcp"],
       "enabled": false
+    },
+    "run_tests": {
+      "type": "local",
+      "command": ["orq-run-tests"],
+      "enabled": true
+    },
+    "kb": {
+      "type": "local",
+      "command": ["orq-kb", "serve"],
+      "enabled": true
     }
   },
-
   "agents": {
     "orquestrador": {
       "mode": "primary",
-      "description": "Agente principal de desenvolvimento. Usa modelo externo para arquitetura e implementação complexa e delega análises simples e testes para modelos locais.",
-      "system": "Você é um engenheiro de software sênior e orquestrador de desenvolvimento, especializado em Laravel, PHP, Livewire, SQL, testes automatizados e SaaS multi-tenant. Use seu modelo principal para arquitetura, implementação complexa, segurança, integração entre múltiplos arquivos e decisões técnicas difíceis. Delegue leitura e análise de trechos pequenos ao subagente local-helper. Delegue execução e investigação de testes ao subagente qwen-testes quando apropriado. Use a ferramenta Task e o identificador exato do subagente. Inclua no prompt da delegação os trechos de código, erros e contexto necessários. Não peça ao modelo local para simular execução de comandos. Para tarefas simples, prefira o modelo local quando isso reduzir custo e latência. Para tarefas complexas, insuficientemente contextualizadas ou críticas, trabalhe diretamente. Revise os resultados dos subagentes. Nunca afirme que testes passaram sem executar os comandos e verificar a saída real. Preserve as regras de negócio, autorização, isolamento por team_id e padrões existentes do projeto.",
-      "permissions": [
-        {
-          "action": "subagent",
-          "resource": "local-helper",
-          "effect": "allow"
+      "description": "Agente principal de desenvolvimento. Usa o modelo escolhido no /models para arquitetura e implementação e delega leitura ao local-helper (contextos maiores) e ao local-mini (trechos pequenos); testes rodam pela ferramenta run_tests.",
+      "system": "Você é um engenheiro de software sênior e orquestrador de desenvolvimento. Siga as convenções, a stack e as regras de negócio do projeto em que está (leia README, AGENTS.md e CLAUDE.md quando existirem). Use seu modelo principal para arquitetura, implementação complexa, segurança, integração entre múltiplos arquivos e decisões técnicas difíceis. Delegue leitura e análise ao subagente local-helper quando o contexto for maior (até 3 arquivos ou trechos) e ao local-mini quando for um trecho pequeno e pontual; use a ferramenta Task com o identificador exato e inclua no prompt os trechos de código, erros e contexto necessários. O local-helper pode repassar trechos ainda menores ao local-mini. Para rodar testes use SEMPRE a ferramenta run_tests (MCP), passando o comando literal e o cwd do projeto; ela devolve a saída real, o exit code e o veredito (passou/falhou/bloqueado). Nunca afirme que testes passaram sem o veredito 'passou' de uma execução real, e trate 'bloqueado' como 'não verificado', não como sucesso. Para conhecimento do projeto (docs, runbooks, decisões, onde algo é feito) consulte a ferramenta kb_search_kb antes de ler vários arquivos; se responder 'não está indexado', avise o usuário para rodar 'orq-kb index' na raiz do projeto, e se o trecho não bastar leia o arquivo apontado. Não peça ao modelo local para simular execução de comandos. Para tarefas complexas, insuficientemente contextualizadas ou críticas, trabalhe diretamente. Revise os resultados dos subagentes. Preserve autorização, isolamento de dados (ex.: multi-tenant), padrões existentes e integridade dos dados; não rode migrações ou operações destrutivas sem autorização explícita.",
+      "permission": {
+        "task": {
+          "*": "deny",
+          "local-helper": "allow",
+          "local-mini": "allow"
         },
-        {
-          "action": "subagent",
-          "resource": "qwen-testes",
-          "effect": "allow"
-        },
-        {
-          "action": "shell",
-          "resource": "*",
-          "effect": "ask"
-        },
-        {
-          "action": "edit",
-          "resource": "*",
-          "effect": "ask"
-        }
-      ]
+        "bash": "ask",
+        "edit": "ask"
+      }
     },
-
     "local-helper": {
       "mode": "subagent",
       "model": "ollama/qwen3-16k:latest",
-      "description": "Agente local para leitura de código, explicações, análise de funções e sugestões de testes. Não altera arquivos.",
-      "system": "Você analisa código. Use a ferramenta read para abrir os arquivos citados na tarefa e a glob para listar diretórios. Leia somente os arquivos necessários, no máximo 3 por tarefa. Responda em português, de forma curta e técnica: o que o código faz, riscos e sugestões de teste. Nunca invente conteúdo de arquivo: se o read falhar ou o arquivo não existir, diga exatamente isso e pare. Não altere arquivos, não execute comandos e não use subagentes. Se a tarefa exigir mudanças em vários arquivos, arquitetura ou segurança, responda que o orquestrador deve assumir.",
-      "permissions": [
-        {
-          "action": "edit",
-          "resource": "*",
-          "effect": "deny"
+      "description": "Agente local de contexto maior (16k) para leitura de até 3 arquivos/trechos, explicações e sugestões de testes. Pode repassar trechos mínimos ao local-mini. Não altera arquivos.",
+      "system": "Você analisa código. Use a ferramenta read para abrir os arquivos citados na tarefa e a glob para listar diretórios. Se a tarefa pedir onde algo é feito ou contexto do projeto, consulte primeiro kb_search_kb (devolve poucos trechos com caminho e linha). Leia somente os arquivos necessários, no máximo 3 por tarefa. Responda em português, de forma curta e técnica: o que o código faz, riscos e sugestões de teste. Nunca invente conteúdo de arquivo: se o read falhar ou o arquivo não existir, diga exatamente isso e pare. Não altere arquivos e não execute comandos. Para um trecho pequeno e bem delimitado (um único arquivo ou um trecho curto), você pode delegar ao subagente local-mini usando a ferramenta Task; não delegue nada que exija mais de um arquivo ou raciocínio amplo. Se a tarefa exigir mudanças em vários arquivos, arquitetura ou segurança, responda que o orquestrador deve assumir.",
+      "permission": {
+        "edit": "deny",
+        "bash": "deny",
+        "task": {
+          "*": "deny",
+          "local-mini": "allow"
         },
-        {
-          "action": "shell",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "execute",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "subagent",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "browser",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "question",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "webfetch",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "websearch",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "glob",
-          "resource": "*",
-          "effect": "allow"
-        },
-        {
-          "action": "grep",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "external_directory",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "read",
-          "resource": "*.env",
-          "effect": "deny"
-        },
-        {
-          "action": "read",
-          "resource": "*.env.*",
-          "effect": "deny"
-        },
-        {
-          "action": "read",
-          "resource": "*id_rsa*",
-          "effect": "deny"
-        },
-        {
-          "action": "read",
-          "resource": "*.pem",
-          "effect": "deny"
-        },
-        {
-          "action": "read",
-          "resource": "*.key",
-          "effect": "deny"
-        },
-        {
-          "action": "read",
-          "resource": "*.env.example",
-          "effect": "allow"
+        "external_directory": "deny",
+        "read": {
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "*.env.example": "allow",
+          "*id_rsa*": "deny",
+          "*.pem": "deny",
+          "*.key": "deny"
         }
-      ]
+      }
     },
-
-    "qwen-testes": {
+    "local-mini": {
       "mode": "subagent",
-      "model": "ollama/qwen3-16k:latest",
-      "description": "Agente local de testes. Executa comandos reais, investiga falhas e retorna evidências ao orquestrador, sem modificar arquivos.",
-      "system": "Você é um executor de comandos. Rode exatamente o comando pedido, uma vez, com a ferramenta shell. Nunca faça perguntas. Nunca altere nem substitua o comando. Copie a saída literal, sem resumir. Responda apenas três linhas:\nCOMANDO: <comando literal>\nSAIDA: <saída literal>\nRESULTADO: <passou|falhou|bloqueado>\nUse passou somente se a saída contiver 'OK ('. Use falhou somente se contiver 'FAILURES!' ou 'ERRORS!'. Em qualquer outro caso use bloqueado. Nunca invente contagem ou nome de teste que não esteja na saída.",
-      "permissions": [
-        {
-          "action": "edit",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "shell",
-          "resource": "*",
-          "effect": "ask"
-        },
-        {
-          "action": "execute",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "browser",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "subagent",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "question",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "webfetch",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "websearch",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "glob",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "grep",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "external_directory",
-          "resource": "*",
-          "effect": "deny"
-        },
-        {
-          "action": "shell",
-          "resource": "composer *",
-          "effect": "deny"
-        },
-        {
-          "action": "shell",
-          "resource": "npm *",
-          "effect": "deny"
-        },
-        {
-          "action": "shell",
-          "resource": "php artisan migrate*",
-          "effect": "deny"
-        },
-        {
-          "action": "shell",
-          "resource": "php artisan db:*",
-          "effect": "deny"
-        },
-        {
-          "action": "shell",
-          "resource": "docker *",
-          "effect": "deny"
-        },
-        {
-          "action": "shell",
-          "resource": "Remove-Item *",
-          "effect": "deny"
-        },
-        {
-          "action": "shell",
-          "resource": "rm *",
-          "effect": "deny"
-        },
-        {
-          "action": "read",
-          "resource": "*.env",
-          "effect": "deny"
-        },
-        {
-          "action": "read",
-          "resource": "*.env.*",
-          "effect": "deny"
-        },
-        {
-          "action": "read",
-          "resource": "*id_rsa*",
-          "effect": "deny"
-        },
-        {
-          "action": "read",
-          "resource": "*.pem",
-          "effect": "deny"
-        },
-        {
-          "action": "read",
-          "resource": "*.key",
-          "effect": "deny"
-        },
-        {
-          "action": "read",
-          "resource": "*.env.example",
-          "effect": "allow"
+      "model": "ollama/qwen-coder-8k:latest",
+      "description": "Agente local mínimo para ler um único trecho/arquivo curto, responder dúvidas pontuais e sugerir um teste. Não altera arquivos.",
+      "system": "Você responde apenas sobre o trecho de código fornecido ou sobre um único arquivo citado. Use read no máximo uma vez e somente no arquivo indicado. Responda em português, em no máximo 5 linhas: o que o trecho faz, riscos evidentes e uma sugestão de teste. Nunca invente conteúdo: se o read falhar ou o arquivo não existir, diga exatamente isso e pare. Não altere arquivos, não execute comandos, não use outras ferramentas e não chame subagentes. Se a tarefa precisar de mais de um arquivo ou de raciocínio amplo, responda que o local-helper ou o orquestrador deve assumir.",
+      "permission": {
+        "edit": "deny",
+        "bash": "deny",
+        "task": "deny",
+        "external_directory": "deny",
+        "read": {
+          "*.env": "deny",
+          "*.env.*": "deny",
+          "*.env.example": "allow",
+          "*id_rsa*": "deny",
+          "*.pem": "deny",
+          "*.key": "deny"
         }
-      ]
+      }
     }
   }
 }

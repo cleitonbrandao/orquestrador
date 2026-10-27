@@ -1,0 +1,6 @@
+{
+  "mcpServers": {
+    "run_tests": { "command": "orq-run-tests" },
+    "kb": { "command": "orq-kb", "args": ["serve"] }
+  }
+}

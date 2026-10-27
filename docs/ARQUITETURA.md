@@ -10,7 +10,7 @@ Três agentes, papéis bem separados:
 |---|---|---|---|
 | `orquestrador` | `primary` | **nenhum** (segue `/models`) | tudo; `shell` e `edit` em `ask` |
 | `local-helper` | `subagent` | `ollama/qwen3-16k:latest` | `read`, `glob` |
-| `qwen-testes` | `subagent` | `ollama/qwen3-16k:latest` | `shell` (ask), `read` |
+| `run_tests` | servidor MCP (sem LLM) | — | só comandos de teste da allowlist |
 
 O objetivo é econômico: leitura de código e execução de testes são as operações mais
 frequentes e mais mecânicas. Mandá-las para um modelo local de 8B custa US$ 0,00 e
@@ -69,8 +69,8 @@ com `qwen3:8b` veio preenchido e o `shell` executou de verdade.
 
 ## Decisão 5 — Segurança por `deny`, não por `ask`
 
-**O que foi feito:** subagentes com lista de `deny` explícita; `shell` do `qwen-testes`
-como `ask`.
+**O que foi feito:** subagentes com lista de `deny` explícita; `shell` do antigo `qwen-testes`
+como `ask` (hoje substituído pelo `run_tests`).
 
 **Por quê:** em subagente, uma regra `ask` **não abre prompt** — o log não mostra pedido
 de permissão e o comando executa. Só `deny` realmente barra.
@@ -94,7 +94,7 @@ Inverter a ordem faz o `composer *` ser sobrescrito pelo `*`.
 
 ## Decisão 7 — Poucas ferramentas por agente
 
-`local-helper` não tem `grep`, `shell`, `edit` nem `execute`. `qwen-testes` não tem
+`local-helper` não tem `grep`, `shell`, `edit` nem `execute`. o antigo `qwen-testes` não tinha
 `edit`, `glob`, `grep` nem `execute`.
 
 **Por quê:** cada ferramenta extra é uma chance de o modelo de 8B escolher errado. Um
@@ -107,32 +107,43 @@ entrar em loop. A busca fica com o orquestrador, que passa os arquivos já local
 ## Decisão 8 — `execute` (Code Mode) negado nos subagentes
 
 Code Mode dá ao modelo um runtime JavaScript com acesso a ferramentas. Em um modelo local
-de 8B o resultado é imprevisível e foge da auditoria linha a linha. O `qwen-testes` usa
+de 8B o resultado é imprevisível e foge da auditoria linha a linha. O antigo `qwen-testes` usava
 `shell` direto: um comando, uma saída, uma evidência.
 
-## Contrato de saída do `qwen-testes`
+## Decisão 9 — `qwen-testes` (LLM) substituído por `run_tests` (MCP)
 
-```
-COMANDO: <comando literal>
-SAIDA: <saída literal>
-RESULTADO: <passou|falhou|bloqueado>
-```
+**O que foi feito:** o agente LLM que executava testes virou um servidor MCP determinístico
+(`mcp/run_tests/server.py`, só biblioteca padrão).
 
-- `passou` **somente** se a saída contiver `OK (` (formato do PHPUnit);
-- `falhou` **somente** se contiver `FAILURES!` ou `ERRORS!`;
-- qualquer outro caso → `bloqueado`.
+**Por quê:** rodar um comando e devolver stdout + exit code não exige modelo. O agente LLM
+só acrescentava o risco de inventar saída e dependia de ler `OK (` (formato PHPUnit), o que
+não vale para pest/jest/pytest.
 
-Isso impede o clássico "os testes passaram" sem que nenhum teste tenha rodado. Um comando
-que não existe (`./vendor/bin/phpunit` em diretório errado) devolve
-`CommandNotFoundException` e o veredito correto é **`bloqueado`**, não `passou`.
+**Contrato:** `passou` = exit 0 · `falhou` = exit ≠ 0 · `bloqueado` = comando recusado,
+inexistente, cwd inválido ou timeout. `bloqueado` significa *não verificado*.
+
+**Segurança:** allowlist de comandos de teste + lista de negação (`install`, `migrate`,
+`db:`, `rm`, `docker`, `curl`...), execução sem shell (`shlex`), metacaracteres
+(`; & | > < $()`) recusados, timeout (padrão 300 s, máx. 1800 s), saída truncada em 16 KB.
+Isso substitui o `deny` por padrão de shell do antigo agente, que só barrava por prefixo.
+
+**Evidência (2026-10-23, Linux):** `git --version` → `passou`; `composer install` e
+`git --version; rm -rf x` → `bloqueado`; `pytest` inexistente → `bloqueado`; cwd inexistente
+→ `bloqueado`. Reproduzível com `./verify.sh`. **Não validado ainda** dentro do OpenCode V2
+(ver pendência abaixo) nem no Windows.
+
+## Decisão 10 — Busca semântica local (`kb` + `nomic-embed-text`)
+
+O MCP `kb` (`mcp/kb/kb.py`) combina BM25 com embeddings do `nomic-embed-text` (Ollama `/api/embed`),
+e está registrado nos dois lados: Claude Code (escopo user) e OpenCode (`mcp.kb` em
+`opencode/opencode.json`, ferramenta `kb_search_kb`). O modelo não gera texto, então fica fora do
+`scripts/testar-modelo.sh`. Um app só tem busca semântica se foi indexado com o modelo presente;
+`./verify.sh` avisa os apps com 0 embeddings. Detalhes e custo de indexação em `CLAUDE-CODE.md`.
 
 ## Evidências de validação (2026-10-23, OpenCode v2.1.3)
 
 | Teste | Resultado observado |
 |---|---|
-| `qwen-testes` → `git --version` | executou, saída literal, exit 0 |
-| `qwen-testes` → `./vendor/bin/phpunit` (inexistente) | `CommandNotFoundException`, exit 1, veredito `bloqueado` |
-| `qwen-testes` → `composer install` | `permission.rejected`, **não executou** |
 | `local-helper` → `read app/phpunit.xml.dist` | devolveu `sqlite` / `Unit, Feature` |
 | `local-helper` → `read` de arquivo inexistente | `File not found`, sem invenção |
 | `local-helper` → `read app/.env` | `permission.rejected` |

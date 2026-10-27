@@ -123,9 +123,19 @@ try {
     exit 1
 }
 
+Write-Step "Instalando o servidor MCP run_tests"
+$BinDir = Join-Path $HOME ".local\bin"
+New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
+$Server = Join-Path $RepoDir "mcp\run_tests\server.py"
+$Py = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } elseif (Get-Command py -ErrorAction SilentlyContinue) { "py -3" } else { $null }
+if (-not $Py) { Write-Fail "python não encontrado (necessário para o run_tests)" }
+Set-Content -LiteralPath (Join-Path $BinDir "orq-run-tests.cmd") -Encoding ASCII -Value "@echo off`r`n$Py `"$Server`" %*"
+Write-Ok "launcher: $BinDir\orq-run-tests.cmd"
+if (($env:PATH -split ";") -notcontains $BinDir) { Write-Warn2 "$BinDir não está no PATH; o OpenCode não achará orq-run-tests" }
+
 if ($SkipModel) {
     Write-Step "Ollama: ignorado (-SkipModel)"
-    Write-Warn2 "os subagentes esperam o modelo '$ModelName' já existente"
+    Write-Warn2 "o local-helper espera o modelo '$ModelName' já existente"
 } else {
     Write-Step "Garantindo o modelo local '$ModelName' (ctx $Context)"
     $list = (& ollama list 2>&1 | Out-String)

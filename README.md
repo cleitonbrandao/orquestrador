@@ -1,14 +1,16 @@
 # orquestrador — OpenCode + modelos locais
 
 Configuração **global** do [OpenCode](https://opencode.ai) que monta uma orquestração de
-três agentes: um orquestrador (modelo que você escolher) delegando leitura de código e
-execução de testes para modelos locais via [Ollama](https://ollama.com), com custo zero
+orquestrador (modelo que você escolher) que delega leitura de código a um modelo local e
+executa testes por uma ferramenta determinística via [Ollama](https://ollama.com), com custo zero
 nessas duas tarefas.
 
 Funciona em **Windows** e **Linux/macOS**, em qualquer repositório, sem precisar de
 `opencode.json` por projeto.
 
 - Config: [`opencode/opencode.json`](opencode/opencode.json)
+- Uso com o Claude Code: [`docs/CLAUDE-CODE.md`](docs/CLAUDE-CODE.md)
+- Servidor de testes: [`mcp/run_tests/server.py`](mcp/run_tests/server.py)
 - Instalador Windows: [`install.ps1`](install.ps1)
 - Instalador Linux/macOS: [`install.sh`](install.sh)
 - Verificação: [`verify.ps1`](verify.ps1) / [`verify.sh`](verify.sh)
@@ -21,30 +23,34 @@ Funciona em **Windows** e **Linux/macOS**, em qualquer repositório, sem precisa
 ## Como funciona
 
 ```
-                       ┌──────────────────────────────────────┐
-                       │ orquestrador (mode: primary)         │
-                       │ modelo = o escolhido no /models      │
-                       │ shell: ask · edit: ask               │
-                       └───────────────┬──────────────────────┘
-                                       │ Task / subagente
-                    ┌──────────────────┴──────────────────┐
-                    ▼                                     ▼
-      ┌───────────────────────────┐        ┌────────────────────────────┐
-      │ local-helper              │        │ qwen-testes                │
-      │ ollama/qwen3-16k:latest   │        │ ollama/qwen3-16k:latest    │
-      │ read + glob               │        │ shell (ask) + read         │
-      │ sem edit/shell/execute    │        │ sem edit/execute/subagent  │
-      └───────────────────────────┘        └────────────────────────────┘
-                    │                                     │
-                    └──────────► Ollama 127.0.0.1:11434 ◄┘
-                                 (modelo derivado, ctx 16384)
+   ┌──────────────────────────────────────┐
+   │ orquestrador (mode: primary)         │
+   │ modelo = o escolhido no /models      │
+   │ shell: ask · edit: ask               │
+   └───────┬──────────────────────┬───────┘
+           │ Task / subagente     │ MCP (stdio)
+           ▼                      ▼
+ ┌───────────────────┐   ┌──────────────────────────┐
+ │ local-helper      │   │ run_tests (mcp/run_tests)│
+ │ ollama/qwen3-16k  │   │ sem LLM: allowlist,      │
+ │ read + glob       │   │ exit code real, veredito │
+ └───────────────────┘   └──────────────────────────┘
 ```
 
-| Agente | Modelo | Papel | Ferramentas permitidas |
+| Componente | Tipo | Papel | Permitido |
 |---|---|---|---|
-| `orquestrador` | **nenhum pin** → segue o `/models` | arquitetura, mudanças complexas, revisão | tudo, com `shell`/`edit` em modo *ask* |
-| `local-helper` | `ollama/qwen3-16k:latest` | ler e explicar código, sugerir testes | `read`, `glob` |
-| `qwen-testes` | `ollama/qwen3-16k:latest` | executar comandos e reportar saída literal | `shell` (ask), `read` |
+| `orquestrador` | agente primary, **sem pin** (segue `/models`) | arquitetura, mudanças complexas, revisão | tudo, com `shell`/`edit` em *ask* |
+| `local-helper` | subagente, `ollama/qwen3-16k:latest` | ler e explicar código | `read`, `glob` |
+| `run_tests` | servidor MCP determinístico (Python stdlib) | rodar testes e devolver saída literal | só comandos de teste da allowlist |
+
+**Por que `run_tests` e não um agente LLM:** rodar um comando e devolver stdout + exit code
+não exige modelo; um modelo pequeno só acrescenta o risco de "inventar" o resultado.
+Veredito: `passou` = exit 0 · `falhou` = exit ≠ 0 · `bloqueado` = recusado, inexistente ou
+timeout (tratar como *não verificado*). Allowlist: phpunit/pest, `php artisan test`,
+`composer test`, `npm|pnpm|yarn test`, vitest/jest, pytest, `go|cargo|dotnet test`,
+`mvn|gradle test`. Estenda com `ORQ_TESTS_ALLOW="regex;;regex"`. Pipes, `;`, `&`, `>` e
+`$()` são recusados; `install`, `migrate`, `db:`, `rm`, `docker`, `curl` também.
+Instalado como `orq-run-tests` em `~/.local/bin` (Windows: `.cmd` em `%USERPROFILE%\.local\bin`).
 
 O `orquestrador` **não tem modelo fixo de propósito**: o modelo ativo é o que você escolhe
 com `/models`. Trocar o modelo no `/models` troca o modelo do orquestrador.
@@ -164,13 +170,13 @@ O script confere:
 1. `opencode` e `ollama` disponíveis e suas versões.
 2. `opencode.json` é JSON válido e está no caminho global correto.
 3. `qwen3-16k` existe no Ollama e carrega com `context_length: 16384`.
-4. `opencode debug agents` mostra os três agentes e as permissões efetivas
-   (`execute: deny` nos subagentes, `shell: ask` no `qwen-testes`).
+4. `opencode debug agents` mostra os os agentes e as permissões efetivas
+   (`execute: deny` no `local-helper`) e o `run_tests` responde a comandos permitidos e bloqueados.
 
 Teste manual de ponta a ponta (custa tempo, não custa dinheiro):
 
 ```
-Delegue ao qwen-testes rodar: git --version
+Use run_tests para rodar: git --version
 ```
 
 Resposta esperada, no formato do agente:
@@ -178,25 +184,24 @@ Resposta esperada, no formato do agente:
 ```
 COMANDO: git --version
 SAIDA: git version 2.x.y...
-RESULTADO: bloqueado
+RESULTADO: passou
 ```
 
-`bloqueado` é correto: o comando não produziu saída de teste (`OK (`, `FAILURES!`,
-`ERRORS!`). Se o agente inventar contagem de testes, veja
+`passou` = exit code 0 real. Se o agente inventar contagem de testes, veja
 [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
 
 ---
 
 ## Segurança
 
-Os subagentes rodam com o **mínimo de ferramentas** e uma lista explícita de negações:
+O subagente roda com o **mínimo de ferramentas** e uma lista explícita de negações:
 
 - `edit`, `execute` (Code Mode), `subagent`, `question`, `webfetch`, `websearch`,
-  `external_directory` — negados nos dois subagentes;
+  `external_directory` — negados no `local-helper`;
 - `read` de `*.env`, `*.env.*`, `*.pem`, `*.key`, `*id_rsa*` — negado
   (`*.env.example` liberado por ser template);
-- `qwen-testes`: `composer *`, `npm *`, `php artisan migrate*`, `php artisan db:*`,
-  `docker *`, `Remove-Item *`, `rm *` — negados.
+- `run_tests`: só comandos da allowlist; recusa `install`, `migrate`, `db:`, `rm`, `docker`,
+  `curl` e qualquer encadeamento (`; & | > $()`).
 
 Regras de permissão são avaliadas em ordem e **o último match vence**; por isso as
 negações específicas vêm depois do `*: allow` padrão.
@@ -214,6 +219,10 @@ orquestrador/
 ├── verify.sh  / verify.ps1      # verificação do ambiente
 ├── opencode/
 │   └── opencode.json            # config global (sem segredos)
+├── mcp/
+│   ├── run_tests/server.py      # MCP: testes com saída condensada
+│   └── kb/kb.py                 # MCP + CLI: base de conhecimento por app (BM25 + embeddings opcionais)
+├── claude/                      # subagente `triagem` e trecho de CLAUDE.md (ver docs/CLAUDE-CODE.md)
 ├── docs/
 │   ├── AMBIENTE.md              # setup exato onde foi validado
 │   ├── ARQUITETURA.md           # decisões, permissões e evidências

@@ -12,6 +12,7 @@ MODEL_NAME="qwen3-16k"
 SKIP_MODEL=0
 LINK=0
 FORCE=0
+CLAUDE=0
 
 usage() {
   cat <<EOF
@@ -21,6 +22,7 @@ Uso: ./install.sh [opções]
   --ctx <n>          num_ctx do modelo derivado (padrão: $CONTEXT)
   --no-model         não mexe no Ollama
   --link             cria symlink em vez de copiar (recomendado para editar no repo)
+  --claude           registra MCP e subagente no Claude Code (escopo user)
   --force            recria o modelo derivado mesmo que já exista
   -h, --help         esta ajuda
 EOF
@@ -33,6 +35,7 @@ while [ $# -gt 0 ]; do
     --no-model) SKIP_MODEL=1; shift ;;
     --link)     LINK=1; shift ;;
     --force)    FORCE=1; shift ;;
+    --claude)   CLAUDE=1; shift ;;
     -h|--help)  usage; exit 0 ;;
     *) echo "Opção desconhecida: $1" >&2; usage >&2; exit 1 ;;
   esac
@@ -129,9 +132,21 @@ if [ "$valid" -eq 0 ]; then
   exit 1
 fi
 
+step "Instalando o servidor MCP run_tests"
+BIN_DIR="${HOME}/.local/bin"
+mkdir -p "$BIN_DIR"
+chmod +x "$REPO_DIR/mcp/run_tests/server.py"
+ln -sf "$REPO_DIR/mcp/run_tests/server.py" "$BIN_DIR/orq-run-tests"
+ok "launcher: $BIN_DIR/orq-run-tests -> mcp/run_tests/server.py"
+chmod +x "$REPO_DIR/mcp/kb/kb.py"
+ln -sf "$REPO_DIR/mcp/kb/kb.py" "$BIN_DIR/orq-kb"
+ok "launcher: $BIN_DIR/orq-kb -> mcp/kb/kb.py"
+command -v python3 >/dev/null 2>&1 || fail "python3 não encontrado (necessário para o run_tests)"
+case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR não está no PATH; o OpenCode não achará orq-run-tests" ;; esac
+
 if [ "$SKIP_MODEL" -eq 1 ]; then
   step "Ollama: ignorado (--no-model)"
-  warn "os subagentes esperam o modelo '$MODEL_NAME' já existente"
+  warn "o local-helper espera o modelo '$MODEL_NAME' já existente"
 else
   step "Garantindo o modelo local '$MODEL_NAME' (ctx $CONTEXT)"
   list="$(ollama list 2>&1 || true)"
@@ -156,6 +171,47 @@ else
       echo "    PARAMETER num_ctx $CONTEXT" >&2
       echo "    ollama create $MODEL_NAME -f <arquivo>" >&2
       exit 1
+    fi
+  fi
+fi
+
+if [ "$CLAUDE" -eq 1 ]; then
+  step "Integrando com o Claude Code"
+  if ! command -v claude >/dev/null 2>&1; then
+    warn "claude não encontrado no PATH; pulando"
+  else
+    mkdir -p "$HOME/.claude/agents"
+    cp "$REPO_DIR/claude/agents/triagem.md" "$HOME/.claude/agents/triagem.md"
+    ok "subagente: ~/.claude/agents/triagem.md"
+    claude mcp remove --scope user run_tests >/dev/null 2>&1 || true
+    claude mcp remove --scope user kb >/dev/null 2>&1 || true
+    claude mcp add --scope user run_tests -- "$BIN_DIR/orq-run-tests" >/dev/null && ok "MCP run_tests registrado (user)" || warn "falha ao registrar run_tests"
+    claude mcp add --scope user kb -- "$BIN_DIR/orq-kb" serve >/dev/null && ok "MCP kb registrado (user)" || warn "falha ao registrar kb"
+    if command -v python3 >/dev/null 2>&1; then
+      REPO_DIR="$REPO_DIR" python3 - <<'PY'
+import json, os, re
+home, repo = os.path.expanduser("~"), os.environ["REPO_DIR"]
+sp = os.path.join(home, ".claude", "settings.json")
+d = json.load(open(sp, encoding="utf-8")) if os.path.exists(sp) else {}
+allow = d.setdefault("permissions", {}).setdefault("allow", [])
+for x in ("mcp__run_tests__run_tests", "mcp__kb__search_kb", "mcp__kb__list_apps"):
+    if x not in allow:
+        allow.append(x)
+json.dump(d, open(sp, "w", encoding="utf-8"), indent=2, ensure_ascii=False)
+open(sp, "a").write("\n")
+print("  ok  permissões MCP em ~/.claude/settings.json")
+mp = os.path.join(home, ".claude", "CLAUDE.md")
+block = "<!-- orquestrador:begin -->\n" + open(os.path.join(repo, "claude", "CLAUDE.snippet.md"), encoding="utf-8").read().strip() + "\n<!-- orquestrador:end -->\n"
+cur = open(mp, encoding="utf-8").read() if os.path.exists(mp) else ""
+if "orquestrador:begin" in cur:
+    cur = re.sub(r"<!-- orquestrador:begin -->.*?<!-- orquestrador:end -->\n", lambda m: block, cur, flags=re.S)
+else:
+    cur = (cur.rstrip() + "\n\n" if cur.strip() else "") + block
+open(mp, "w", encoding="utf-8").write(cur)
+print("  ok  bloco do orquestrador em ~/.claude/CLAUDE.md (idempotente)")
+PY
+    else
+      warn "python3 ausente: adicione manualmente as permissões e o claude/CLAUDE.snippet.md"
     fi
   fi
 fi

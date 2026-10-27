@@ -26,7 +26,7 @@ printf 'FROM qwen3:8b\nPARAMETER num_ctx 16384\n' > /tmp/Modelfile
 ollama create qwen3-16k -f /tmp/Modelfile
 ```
 
-Depois aponte `agents.local-helper.model` e `agents.qwen-testes.model` para
+Depois aponte `agents.local-helper.model` para
 `ollama/qwen3-16k:latest`.
 
 **Conferir:**
@@ -82,7 +82,7 @@ modelo (na v2.1.3, caía em um modelo de nuvem).
 
 **Solução:** passar o modelo explicitamente.
 ```powershell
-opencode run --agent qwen-testes --model ollama/qwen3-16k:latest "rode: git --version"
+opencode run --agent local-helper --model ollama/qwen3-16k:latest "leia README.md"
 ```
 
 ---
