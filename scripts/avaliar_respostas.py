@@ -18,6 +18,23 @@ def limpar(texto):
     return re.sub(r"<think>.*?</think>", "", texto, flags=re.S).strip()
 
 
+def texto_do_processo(dados):
+    """Decodifica a saída do subprocesso sem depender do encoding da máquina.
+
+    A saída é capturada em bytes (não com text=True): quando a decodificação falha,
+    o subprocesso devolve stderr=None e o avaliador morre com AttributeError em vez
+    de reportar FALHA. Aqui a decodificação só pode "chutar", nunca estourar.
+    """
+    if not dados:
+        return ""
+    for codificacao in ("utf-8", "cp1252"):
+        try:
+            return dados.decode(codificacao)
+        except (LookupError, UnicodeDecodeError):
+            continue
+    return dados.decode("utf-8", "replace")
+
+
 def avaliar_a(texto):
     passos = [l for l in texto.splitlines() if re.match(r"^\s*\d+[.)]\s+\S", l)]
     if len(passos) != 5:
@@ -84,13 +101,17 @@ def avaliar_c(texto):
             f.write(RUNNER)
         try:
             r = subprocess.run(
-                [sys.executable, "-I", "runner.py"],
-                cwd=pasta, capture_output=True, text=True, timeout=20,
+                # -X utf8: o filho escreve sempre em UTF-8 (com -I ele ignora PYTHONUTF8/PYTHONIOENCODING),
+                # então as mensagens de assert em português não brigam com a decodificação do pai.
+                [sys.executable, "-I", "-X", "utf8", "runner.py"],
+                cwd=pasta, capture_output=True, timeout=20,
+                stdin=subprocess.DEVNULL,
             )
         except subprocess.TimeoutExpired:
             return "FALHA: código travou (timeout 20 s)"
     if r.returncode != 0:
-        ultima = (r.stderr.strip().splitlines() or ["erro desconhecido"])[-1]
+        linhas = [l.strip() for l in texto_do_processo(r.stderr).splitlines() if l.strip()]
+        ultima = linhas[-1] if linhas else f"erro desconhecido (exit {r.returncode})"
         return f"FALHA: {ultima[:120]}"
     return "OK"
 

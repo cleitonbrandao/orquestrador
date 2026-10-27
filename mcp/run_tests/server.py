@@ -11,13 +11,14 @@ comando, saída, exit code e veredito. Só biblioteca padrão, sem dependências
 Allowlist extra: ORQ_TESTS_ALLOW="regex1;;regex2" (casa com o comando inteiro).
 """
 import json
+import locale
 import os
 import re
 import shlex
 import subprocess
 import sys
 
-NAME, VERSION = "run_tests", "1.0.0"
+NAME, VERSION = "run_tests", "1.0.1"
 PROTOCOL = "2024-11-05"
 MAX_TIMEOUT = 1800
 TAIL_BYTES = 16000
@@ -80,6 +81,33 @@ def allowed(command):
     return None
 
 
+def _encoding_local():
+    """Encoding do console/locale: no Windows é o code page ANSI (cp1252...) mesmo em modo UTF-8."""
+    try:
+        return locale.getencoding()  # 3.11+
+    except AttributeError:
+        return locale.getpreferredencoding(False)
+
+
+def decode_output(data):
+    """Decodifica a saída do comando de teste testando os encodings prováveis.
+
+    Sem `text=True` no subprocess: ele decodifica no encoding do locale e, no Windows,
+    o runner (phpunit, vitest, go, pytest) costuma escrever UTF-8 enquanto o Python
+    local pode estar em cp1252 — e vice-versa. Aqui a decodificação nunca estoura.
+    """
+    if isinstance(data, str):
+        return data
+    if not data:
+        return ""
+    for codificacao in ("utf-8", _encoding_local()):
+        try:
+            return data.decode(codificacao)
+        except (LookupError, UnicodeDecodeError):
+            continue
+    return data.decode("utf-8", "replace")
+
+
 def tail(text):
     data = text.encode("utf-8", "replace")
     if len(data) <= TAIL_BYTES:
@@ -130,19 +158,17 @@ def run_tests(args):
         result["output"] = "cwd inexistente: " + cwd
         return result
     try:
-        p = subprocess.run(shlex.split(command), cwd=cwd, capture_output=True, text=True,
-                           errors="replace", timeout=timeout, stdin=subprocess.DEVNULL)
+        p = subprocess.run(shlex.split(command), cwd=cwd, capture_output=True,
+                           timeout=timeout, stdin=subprocess.DEVNULL)
     except FileNotFoundError as e:
         result["output"] = "comando inexistente: %s" % e
         return result
     except subprocess.TimeoutExpired as e:
-        out = (e.stdout or b"")
-        out = out.decode("utf-8", "replace") if isinstance(out, bytes) else out
-        result["output"] = tail(out) + "\n[timeout após %ds]" % timeout
+        result["output"] = tail(decode_output(e.stdout)) + "\n[timeout após %ds]" % timeout
         return result
     result["exit_code"] = p.returncode
     result["verdict"] = "passou" if p.returncode == 0 else "falhou"
-    raw = p.stdout + p.stderr
+    raw = decode_output(p.stdout) + decode_output(p.stderr)
     result["total_lines"] = len(raw.splitlines())
     if only_failures:
         raw, result["condensed"] = condense(raw, result["verdict"], max_lines)
@@ -153,7 +179,10 @@ def run_tests(args):
 def reply(msg_id, result=None, error=None):
     msg = {"jsonrpc": "2.0", "id": msg_id}
     msg.update({"error": error} if error else {"result": result})
-    sys.stdout.write(json.dumps(msg, ensure_ascii=False) + "\n")
+    try:
+        sys.stdout.write(json.dumps(msg, ensure_ascii=False) + "\n")
+    except UnicodeEncodeError:  # stream sem UTF-8: o JSON escapado é ASCII e continua válido
+        sys.stdout.write(json.dumps(msg, ensure_ascii=True) + "\n")
     sys.stdout.flush()
 
 
@@ -184,7 +213,18 @@ def handle(msg):
         reply(msg_id, error={"code": -32601, "message": "método desconhecido: %s" % method})
 
 
+def use_utf8_stdio():
+    """O protocolo MCP é UTF-8. No Windows, sem isso, stdin/stdout usam o code page local:
+    cwd com acento chega corrompido e saída com ✓/✘/setas derruba o `write` do protocolo."""
+    for stream in (sys.stdin, sys.stdout):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def main():
+    use_utf8_stdio()
     for line in sys.stdin:
         line = line.strip()
         if line:
