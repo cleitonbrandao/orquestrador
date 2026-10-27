@@ -1,0 +1,4 @@
+data,modelo,thinking,tok_s_geracao,tok_s_leitura,carga_s,ram_gb,cpu_pct,A,B,C,D,pontos_qualidade,pontos_velocidade,nota,tempo_s,ram_disp_mb
+2026-10-26_17:36,bonsai-2:9b,off,3.8,7.4,7.1,3.1,100,OK,FALHA,FALHA,OK,30,8,38,643
+2026-10-26_18:00,qwen-coder-8k:latest,n/a,20.2,110.7,6.1,1.2,100,FALHA,FALHA,FALHA,FALHA,0,40,40,117,9842
+2026-10-26_20:34,phi3.5:latest,n/a,4.8,8.2,6.6,3.9,100,FALHA,FALHA,FALHA,FALHA,0,10,10,502,9384
