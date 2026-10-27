@@ -45,6 +45,7 @@ function Banner {
     CmdLinha $ICO.Trofeu $PAL.Rosa "/rank" "ranking por tok/s, com a nota ao lado"
     CmdLinha $ICO.Trofeu $PAL.Rosa "/nota" "ranking por nota, com o tok/s ao lado"
     CmdLinha $ICO.Painel $PAL.Ciano "/list" "testados com nota e pendentes"
+    CmdLinha $ICO.Trofeu $PAL.Rosa   "/list-fluxo-ia" "melhores duplas gerador + revisor"
     CmdLinha $ICO.Painel $PAL.Ciano "/report" "relatório visual (HTML)"
     CmdLinha $ICO.Engr $PAL.Laranja "/clean" "libera RAM antes de testar"
     CmdLinha $ICO.Codigo $PAL.Azul "/help  /quit" "todos os comandos · sair"
@@ -84,6 +85,7 @@ function Ajuda {
     CmdLinha " " $PAL.Rosa "/nota" "ranking por nota, com tok/s, A-D e etapas em que serve"
     CmdLinha " " $PAL.Ciano "/list" "testados (com a nota) e instalados ainda sem teste"
     CmdLinha " " $PAL.Ciano "/ver <modelo>" "histórico completo de um modelo"
+    CmdLinha " " $PAL.Rosa   "/list-fluxo-ia" "lista as melhores duplas gerador + revisor"
     CmdLinha " " $PAL.Ciano "/report" "gera docs\resultados\relatorio.html e abre no navegador"
     Titulo $PAL.Laranja "$($ICO.Engr)  Máquina"
     CmdLinha " " $PAL.Laranja "/clean" "libera RAM: Ollama, Docker e apps (pergunta antes)"
@@ -183,6 +185,7 @@ try {
                 '^/(nota|n)$' { Invoke-Py $RELATORIO nota; break }
                 '^/(list|l)$' { Invoke-Py $RELATORIO lista --instalados (Instalados); break }
                 '^/(ver|v)$' { Invoke-Py $RELATORIO ver @resto; break }
+                '^/(list-fluxo-ia|fluxo)$' { python "$RAIZ\scripts\fluxo_ia.py"; break }
                 '^/report$' { Invoke-Py $RELATORIO html --instalados (Instalados) --abrir; break }
                 '^/(clean|c)$' { Limpar (Alvo-De $resto); $script:LIMPO = $true; break }
                 '^/restore$' { $null = Restaurar; break }
