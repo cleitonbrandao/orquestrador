@@ -188,7 +188,15 @@ try {
                 '^/restore$' { $null = Restaurar; break }
                 '^/ram$' { Estado; break }
                 '^/(prune|remover)$' { $h = Para-Splat-Prune $resto; & $PODAR @h; break }
-                '^/reset$' { & $LIMPARTESTES @(Alvo-De $resto); break }
+                '^/reset$' {
+                    # hashtable + splat, como no /test: passar @(...) como argumento entregava um array ao [string]$Modelo
+                    $h = @{}
+                    $alvoReset = Alvo-De $resto
+                    if ($alvoReset) { $h["Modelo"] = $alvoReset }
+                    if ($resto -contains "--sim") { $h["Sim"] = $true }
+                    & $LIMPARTESTES @h
+                    break
+                }
                 '^/(help|h|\?)$' { Ajuda; break }
                 '^/(quit|exit|q)$' { return }
                 '^/' { Write-Host ((Fg $PAL.Verm) + "$($ICO.Xis) comando desconhecido: $cmd" + (Rs) + " (digite /help)"); break }
