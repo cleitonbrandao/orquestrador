@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Instala a configuração global de orquestração do OpenCode (Linux/macOS).
 #
-# Copia opencode/opencode.json para ${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json
-# com backup do arquivo atual, e garante o modelo derivado do Ollama
-# (qwen3-16k = qwen3:8b + num_ctx 16384).
+# Copia opencode/opencode.json e opencode/plugins/ollama-nothink.ts para
+# ${XDG_CONFIG_HOME:-$HOME/.config}/opencode, com backup do arquivo atual, e
+# garante os modelos derivados do Ollama usados pelos subagentes:
+#   qwen3.5-4b-16k = qwen3.5:4b + num_ctx 16384
+#   qwen3.5-2b-16k = qwen3.5:2b + num_ctx 16384
+#   qwen-coder-8k  = qwen2.5-coder:1.5b + num_ctx 8192
 set -euo pipefail
 
-BASE_MODEL="qwen3:8b"
+BASE_MODEL="qwen3.5:4b"
 CONTEXT=16384
-MODEL_NAME="qwen3-16k"
 SKIP_MODEL=0
 LINK=0
 FORCE=0
@@ -18,8 +20,8 @@ usage() {
   cat <<EOF
 Uso: ./install.sh [opções]
 
-  --model <modelo>   modelo base do Ollama (padrão: $BASE_MODEL)
-  --ctx <n>          num_ctx do modelo derivado (padrão: $CONTEXT)
+  --model <modelo>   base do qwen3.5-4b-16k (padrão: $BASE_MODEL)
+  --ctx <n>          num_ctx do qwen3.5-4b-16k (padrão: $CONTEXT)
   --no-model         não mexe no Ollama
   --link             cria symlink em vez de copiar (recomendado para editar no repo)
   --claude           registra MCP e subagente no Claude Code (escopo user)
@@ -40,6 +42,10 @@ while [ $# -gt 0 ]; do
     *) echo "Opção desconhecida: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
+
+MODEL_NAMES=("qwen3.5-4b-16k" "qwen3.5-2b-16k" "qwen-coder-8k")
+MODEL_BASES=("$BASE_MODEL" "qwen3.5:2b" "qwen2.5-coder:1.5b")
+MODEL_CTXS=("$CONTEXT" "16384" "8192")
 
 step()  { printf '\n\033[36m==> %s\033[0m\n' "$1"; }
 ok()    { printf '  \033[32mok\033[0m  %s\n' "$1"; }
@@ -132,6 +138,17 @@ if [ "$valid" -eq 0 ]; then
   exit 1
 fi
 
+step "Instalando o plugin de thinking do Ollama"
+PLUGIN_DIR="$CONFIG_DIR/plugins"
+mkdir -p "$PLUGIN_DIR"
+PLUGIN_SOURCE="$REPO_DIR/opencode/plugins/ollama-nothink.ts"
+if [ -f "$PLUGIN_SOURCE" ]; then
+  cp "$PLUGIN_SOURCE" "$PLUGIN_DIR/ollama-nothink.ts"
+  ok "plugin copiado: $PLUGIN_DIR/ollama-nothink.ts"
+else
+  warn "plugin não encontrado: $PLUGIN_SOURCE"
+fi
+
 step "Instalando o servidor MCP run_tests"
 BIN_DIR="${HOME}/.local/bin"
 mkdir -p "$BIN_DIR"
@@ -142,37 +159,43 @@ chmod +x "$REPO_DIR/mcp/kb/kb.py"
 ln -sf "$REPO_DIR/mcp/kb/kb.py" "$BIN_DIR/orq-kb"
 ok "launcher: $BIN_DIR/orq-kb -> mcp/kb/kb.py"
 command -v python3 >/dev/null 2>&1 || fail "python3 não encontrado (necessário para o run_tests)"
-case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR não está no PATH; o OpenCode não achará orq-run-tests" ;; esac
+case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR não está no PATH; o OpenCode não achará orq-run-tests/orq-kb" ;; esac
 
 if [ "$SKIP_MODEL" -eq 1 ]; then
   step "Ollama: ignorado (--no-model)"
-  warn "o local-helper espera o modelo '$MODEL_NAME' já existente"
+  warn "os subagentes esperam qwen3.5-4b-16k, qwen3.5-2b-16k e qwen-coder-8k"
 else
-  step "Garantindo o modelo local '$MODEL_NAME' (ctx $CONTEXT)"
   list="$(ollama list 2>&1 || true)"
-  if printf '%s\n' "$list" | awk '{print $1}' | grep -qx "$MODEL_NAME\(:latest\)\?" && [ "$FORCE" -eq 0 ]; then
-    ok "modelo '$MODEL_NAME' já existe (use --force para recriar)"
-  elif ! printf '%s\n' "$list" | awk '{print $1}' | grep -qx "$BASE_MODEL\(:latest\)\?"; then
-    warn "modelo base '$BASE_MODEL' não encontrado no Ollama"
-    echo "  1) ollama pull $BASE_MODEL"
-    echo "  2) ./install.sh            # cria o $MODEL_NAME"
-    echo "  (a configuração do OpenCode já foi instalada)"
-  else
+  for i in "${!MODEL_NAMES[@]}"; do
+    name="${MODEL_NAMES[$i]}"
+    base="${MODEL_BASES[$i]}"
+    ctx="${MODEL_CTXS[$i]}"
+    step "Garantindo o modelo local '$name' (ctx $ctx)"
+    if printf '%s\n' "$list" | awk '{print $1}' | grep -qx "$name\(:latest\)\?" && [ "$FORCE" -eq 0 ]; then
+      ok "modelo '$name' já existe (use --force para recriar)"
+      continue
+    fi
+    if ! printf '%s\n' "$list" | awk '{print $1}' | grep -qx "$base\(:latest\)\?"; then
+      warn "modelo base '$base' não encontrado no Ollama"
+      echo "  1) ollama pull $base"
+      echo "  2) ./install.sh            # cria o $name"
+      continue
+    fi
     mf="$(mktemp)"
-    printf 'FROM %s\nPARAMETER num_ctx %s\n' "$BASE_MODEL" "$CONTEXT" > "$mf"
-    if ollama create "$MODEL_NAME" -f "$mf"; then
+    printf 'FROM %s\nPARAMETER num_ctx %s\n' "$base" "$ctx" > "$mf"
+    if ollama create "$name" -f "$mf"; then
       rm -f "$mf"
-      ok "modelo '$MODEL_NAME' criado com num_ctx $CONTEXT"
+      ok "modelo '$name' criado com num_ctx $ctx"
     else
       rm -f "$mf"
-      fail "falha ao criar o modelo"
+      fail "falha ao criar o modelo '$name'"
       echo "  Crie manualmente:" >&2
-      echo "    FROM $BASE_MODEL" >&2
-      echo "    PARAMETER num_ctx $CONTEXT" >&2
-      echo "    ollama create $MODEL_NAME -f <arquivo>" >&2
+      echo "    FROM $base" >&2
+      echo "    PARAMETER num_ctx $ctx" >&2
+      echo "    ollama create $name -f <arquivo>" >&2
       exit 1
     fi
-  fi
+  done
 fi
 
 if [ "$CLAUDE" -eq 1 ]; then

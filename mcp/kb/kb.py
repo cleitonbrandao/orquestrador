@@ -31,7 +31,9 @@ if not OLLAMA.startswith("http"):
 EXTS = {".md", ".txt", ".php", ".py", ".js", ".ts", ".tsx", ".jsx", ".vue", ".json", ".yml", ".yaml",
         ".sql", ".sh", ".go", ".rs", ".java", ".cs", ".rb", ".css", ".html", ".toml", ".ini", ".xml"}
 SKIP_DIRS = {".git", "node_modules", "vendor", "storage", "bootstrap", "dist", "build", ".venv", "venv",
-             "__pycache__", ".next", ".cache", "coverage", ".idea", ".vscode"}
+             "__pycache__", ".next", ".cache", "coverage", ".idea", ".vscode",
+             # artefatos locais do trail e de testes: não são fonte do projeto
+             "graft", ".trail", ".pytest_cache", ".mypy_cache", ".ruff_cache", "htmlcov"}
 SECRET = re.compile(r"(^|/)(\.env[^/]*|[^/]*\.(key|pem|p12|pfx)|[^/]*id_rsa[^/]*|[^/]*secrets?[^/]*|"
                     r"[^/]*credentials?[^/]*|[^/]*accounts?[^/]*\.json|package-lock\.json|composer\.lock)$", re.I)
 SECRET_OK = re.compile(r"\.env\.example$")
@@ -306,6 +308,12 @@ def handle(msg):
 
 
 def main(argv):
+    # No Windows o console é cp1252; trechos com setas/acentos derrubam o CLI.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
         return 0
@@ -340,6 +348,13 @@ def main(argv):
         c.commit()
         print("app '%s' removido" % pos[0])
     elif cmd == "serve":
+        # MCP stdio é UTF-8 por especificação; no Windows o padrão é cp1252 e
+        # quebra em trechos com setas/acentos (UnicodeEncodeError).
+        try:
+            sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace", newline="\n")
+        except (AttributeError, ValueError):
+            pass
         for line in sys.stdin:
             if line.strip():
                 try:

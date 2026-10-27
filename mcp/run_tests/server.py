@@ -30,7 +30,10 @@ ALLOW = [
     r"(npm|pnpm|yarn|bun) (run )?test( .*)?",
     r"(npx )?(vitest|jest)( .*)?",
     r"(python3? -m )?pytest( .*)?",
+    r"(.*[\\/])?python3?(\.exe)? -m pytest( .*)?",
     r"python3? -m unittest( .*)?",
+    r"(.*[\\/])?python3?(\.exe)? -m unittest( .*)?",
+    r"(.*[\\/])?python3?(\.exe)? .*[\\/]\.orquestrador[\\/]scripts[\\/]verificar_docs\.py( .*)?",
     r"go test( .*)?",
     r"cargo test( .*)?",
     r"(\./)?(mvnw?|gradlew?) (-\S+ )*test( .*)?",
@@ -158,8 +161,22 @@ def run_tests(args):
         result["output"] = "cwd inexistente: " + cwd
         return result
     try:
+<<<<<<< Updated upstream
         p = subprocess.run(shlex.split(command), cwd=cwd, capture_output=True,
                            timeout=timeout, stdin=subprocess.DEVNULL)
+=======
+        # No Windows, posix=True do shlex come as barras de caminho
+        # (.venv\Scripts\python.exe -> .venvScriptspython.exe). posix=False
+        # preserva o caminho; tiramos as aspas que ele mantém nos tokens.
+        partes = shlex.split(command, posix=(os.name != "nt"))
+        if os.name == "nt":
+            partes = [
+                t[1:-1] if len(t) >= 2 and t[0] == t[-1] and t[0] in "\"'" else t
+                for t in partes
+            ]
+        p = subprocess.run(partes, cwd=cwd, capture_output=True, text=True,
+                           errors="replace", timeout=timeout, stdin=subprocess.DEVNULL)
+>>>>>>> Stashed changes
     except FileNotFoundError as e:
         result["output"] = "comando inexistente: %s" % e
         return result
@@ -224,7 +241,17 @@ def use_utf8_stdio():
 
 
 def main():
+<<<<<<< Updated upstream
     use_utf8_stdio()
+=======
+    # MCP stdio é UTF-8; no Windows o padrão cp1252 quebra a saída com acentos
+    # e símbolos (UnicodeEncodeError derruba o servidor).
+    try:
+        sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace", newline="\n")
+    except (AttributeError, ValueError):
+        pass
+>>>>>>> Stashed changes
     for line in sys.stdin:
         line = line.strip()
         if line:

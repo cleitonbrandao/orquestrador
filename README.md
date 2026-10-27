@@ -30,18 +30,23 @@ Funciona em **Windows** e **Linux/macOS**, em qualquer repositório, sem precisa
    └───────┬──────────────────────┬───────┘
            │ Task / subagente     │ MCP (stdio)
            ▼                      ▼
- ┌───────────────────┐   ┌──────────────────────────┐
- │ local-helper      │   │ run_tests (mcp/run_tests)│
- │ ollama/qwen3-16k  │   │ sem LLM: allowlist,      │
- │ read + glob       │   │ exit code real, veredito │
- └───────────────────┘   └──────────────────────────┘
+ ┌───────────────────────┐  ┌──────────────────────────┐
+ │ local-helper 4B       │  │ run_tests (mcp/run_tests)│
+ │ kb + trail + read     │  │ sem LLM: allowlist,      │
+ │ (qwen3.5-4b-16k)      │  │ exit code real, veredito │
+ └───────────────────────┘  └──────────────────────────┘
 ```
 
-| Componente | Tipo | Papel | Permitido |
-|---|---|---|---|
-| `orquestrador` | agente primary, **sem pin** (segue `/models`) | arquitetura, mudanças complexas, revisão | tudo, com `shell`/`edit` em *ask* |
-| `local-helper` | subagente, `ollama/qwen3-16k:latest` | ler e explicar código | `read`, `glob` |
-| `run_tests` | servidor MCP determinístico (Python stdlib) | rodar testes e devolver saída literal | só comandos de teste da allowlist |
+| Componente | Modelo / tipo | Papel |
+|---|---|---|
+| `orquestrador` | primary, **sem pin** (segue `/models`) | arquitetura, mudanças complexas, integração |
+| `decompositor` | `ollama/qwen3.5-4b-16k:latest` | quebrar pedido em tarefas (read-only) |
+| `local-helper` | `ollama/qwen3.5-4b-16k:latest` | ler/explicar código; usa `kb` e `trail` |
+| `exec-docs` | modelo principal (fallback; 4B local instável) | editar Markdown; verificação fica no orquestrador |
+| `revisor` | `ollama/qwen3.5-2b-16k:latest` | revisão advisory do diff, sem ferramentas |
+| `local-mini` | `ollama/qwen-coder-8k:latest` | leitura pontual de um trecho/arquivo curto |
+| `run_tests` | MCP determinístico (Python stdlib) | rodar testes e devolver saída literal |
+| `kb` / `trail` | MCP | busca por trechos e grafo de símbolos |
 
 **Por que `run_tests` e não um agente LLM:** rodar um comando e devolver stdout + exit code
 não exige modelo; um modelo pequeno só acrescenta o risco de "inventar" o resultado.
@@ -50,7 +55,8 @@ timeout (tratar como *não verificado*). Allowlist: phpunit/pest, `php artisan t
 `composer test`, `npm|pnpm|yarn test`, vitest/jest, pytest, `go|cargo|dotnet test`,
 `mvn|gradle test`. Estenda com `ORQ_TESTS_ALLOW="regex;;regex"`. Pipes, `;`, `&`, `>` e
 `$()` são recusados; `install`, `migrate`, `db:`, `rm`, `docker`, `curl` também.
-Instalado como `orq-run-tests` em `~/.local/bin` (Windows: `.cmd` em `%USERPROFILE%\.local\bin`).
+Instalados como `orq-run-tests` e `orq-kb` em `~/.local/bin` (Windows: `.cmd` em `%USERPROFILE%\.local\bin`).
+No Windows, o instalador também coloca essa pasta no `PATH` do usuário.
 
 O `orquestrador` **não tem modelo fixo de propósito**: o modelo ativo é o que você escolhe
 com `/models`. Trocar o modelo no `/models` troca o modelo do orquestrador.
@@ -64,7 +70,7 @@ com `/models`. Trocar o modelo no `/models` troca o modelo do orquestrador.
 | OpenCode | v2.1.3 | `opencode --version` |
 | Ollama | 0.40.9 | `ollama --version`, escutando em `127.0.0.1:11434` |
 | Node.js | v22.13.1 | necessário quando o OpenCode é instalado via npm |
-| GPU | AMD RX 7600 8 GB | 8 GB de VRAM comportam `qwen3-16k` a 16384 de contexto |
+| GPU | AMD RX 7600 8 GB | 8 GB de VRAM comportam `qwen3.5-4b-16k` a 16384 de contexto |
 | RAM | 19.9 GB | fallback em CPU quando a VRAM não cabe |
 
 Sem GPU dedicada dá para usar mesmo assim, com dois ajustes: reduzir o contexto do modelo
@@ -86,7 +92,7 @@ cd "$HOME\Documents\projetos\orquestrador"
 Opções:
 
 ```powershell
-.\install.ps1 -BaseModel qwen3:8b -Context 16384   # padrão
+.\install.ps1 -BaseModel qwen3.5:4b -Context 16384 # padrão
 .\install.ps1 -SkipModel                            # não mexe no Ollama
 .\install.ps1 -Link                                 # tenta symlink (precisa de modo desenvolvedor/admin)
 ```
@@ -102,7 +108,7 @@ cd ~/Documentos/projetos/orquestrador
 Opções:
 
 ```bash
-./install.sh --model qwen3:8b --ctx 16384   # padrão
+./install.sh --model qwen3.5:4b --ctx 16384 # padrão do 4B
 ./install.sh --no-model                     # não mexe no Ollama
 ./install.sh --link                         # symlink em vez de cópia (recomendado p/ editar no repo)
 ```
@@ -113,16 +119,20 @@ Opções:
 2. Copia `opencode/opencode.json` para o config global:
    - Windows: `%USERPROFILE%\.config\opencode\opencode.json`
    - Linux/macOS: `${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json`
-3. Garante o modelo derivado `qwen3-16k` no Ollama:
+3. Copia o plugin `opencode/plugins/ollama-nothink.ts` para
+   `.../opencode/plugins/ollama-nothink.ts`. Ele injeta
+   `reasoning_effort: "none"` nas requisições do provider `ollama`; sem isso, o
+   `qwen3.5:4b` pensa e trava a sessão.
+4. Garante os modelos derivados no Ollama, pulando os que já existem:
    ```
-   FROM qwen3:8b
-   PARAMETER num_ctx 16384
+   qwen3.5-4b-16k  FROM qwen3.5:4b          PARAMETER num_ctx 16384
+   qwen3.5-2b-16k  FROM qwen3.5:2b          PARAMETER num_ctx 16384
+   qwen-coder-8k   FROM qwen2.5-coder:1.5b  PARAMETER num_ctx 8192
    ```
-   (`ollama create qwen3-16k -f <Modelfile>`), pulando se já existir.
-4. Confere os pré-requisitos (`opencode`, `ollama`, `node`) e imprime os próximos passos.
+5. Confere os pré-requisitos (`opencode`, `ollama`, `node`) e imprime os próximos passos.
 
 O instalador **não** faz login em provider nenhum e **não** baixa modelo de 5 GB sem aviso:
-se `qwen3:8b` não estiver presente, ele instrui o `ollama pull qwen3:8b`.
+se um modelo base não estiver presente, ele instrui o `ollama pull` correspondente.
 
 Depois de instalar, **reinicie o OpenCode** — configuração não tem hot-reload completo.
 
@@ -145,7 +155,12 @@ A config também carrega, de forma opcional:
 
 - `plugin: ["opencode-antigravity-auth@latest"]` — habilita os modelos `antigravity-*`;
 - `provider.google.models` — Gemini 3 Pro/Flash e Claude Sonnet/Opus via Antigravity;
-- `mcp.trail` **desabilitado** — só faz sentido em repositórios indexados pelo `trail`.
+- `mcp.servers` — `run_tests`, `kb` e `trail`, todos com `codemode: false` para
+  expor as ferramentas MCP diretamente aos subagentes. O `trail` é útil em
+  repositórios indexados com `trail build` (gera `graft/`, já ignorado pelo git);
+  sem índice, o servidor conecta mas não responde consultas.
+- plugin local `plugins/ollama-nothink.ts` — carregado automaticamente de
+  `~/.config/opencode/plugins/`; desliga o thinking do Ollama.
 
 Nada disso é necessário para a orquestração local. Se você não usa Google, apague o bloco
 `provider` e o `plugin`. Os modelos `antigravity-*` exigem `/auth` com OAuth do Antigravity
@@ -169,9 +184,12 @@ O script confere:
 
 1. `opencode` e `ollama` disponíveis e suas versões.
 2. `opencode.json` é JSON válido e está no caminho global correto.
-3. `qwen3-16k` existe no Ollama e carrega com `context_length: 16384`.
-4. `opencode debug agents` mostra os os agentes e as permissões efetivas
-   (`execute: deny` no `local-helper`) e o `run_tests` responde a comandos permitidos e bloqueados.
+3. `qwen3.5-4b-16k`, `qwen3.5-2b-16k` e `qwen-coder-8k` existem no Ollama e carregam
+   com `num_ctx` 16384/16384/8192.
+4. O plugin `plugins/ollama-nothink.ts` está presente.
+5. `opencode debug agents` mostra os agentes e as permissões efetivas
+   (`execute: deny` no `local-helper`); `run_tests` responde a comandos permitidos e
+   bloqueados; `kb` e `trail` aparecem conectados em `opencode mcp list`.
 
 Teste manual de ponta a ponta (custa tempo, não custa dinheiro):
 
@@ -197,7 +215,8 @@ RESULTADO: passou
 O subagente roda com o **mínimo de ferramentas** e uma lista explícita de negações:
 
 - `edit`, `execute` (Code Mode), `subagent`, `question`, `webfetch`, `websearch`,
-  `external_directory` — negados no `local-helper`;
+  `external_directory` — negados no `local-helper`; as ferramentas MCP `kb`, `trail` e
+  `run_tests` ficam disponíveis diretamente porque os servidores usam `codemode: false`;
 - `read` de `*.env`, `*.env.*`, `*.pem`, `*.key`, `*id_rsa*` — negado
   (`*.env.example` liberado por ser template);
 - `run_tests`: só comandos da allowlist; recusa `install`, `migrate`, `db:`, `rm`, `docker`,
@@ -218,7 +237,9 @@ orquestrador/
 ├── install.sh / install.ps1     # instaladores (Linux/macOS · Windows)
 ├── verify.sh  / verify.ps1      # verificação do ambiente
 ├── opencode/
-│   └── opencode.json            # config global (sem segredos)
+│   ├── opencode.json            # config global (sem segredos)
+│   └── plugins/
+│       └── ollama-nothink.ts    # reasoning_effort: none para o Ollama
 ├── mcp/
 │   ├── run_tests/server.py      # MCP: testes com saída condensada
 │   └── kb/kb.py                 # MCP + CLI: base de conhecimento por app (BM25 + embeddings opcionais)
@@ -236,8 +257,10 @@ orquestrador/
 
 | Sintoma | Causa | Solução |
 |---|---|---|
-| Agente local não chama ferramenta | modelo sem suporte a `tool_calls` | usar `qwen3-16k` (ver TROUBLESHOOTING) |
+| Agente local não chama ferramenta | modelo sem suporte a `tool_calls` | usar `qwen3.5-4b-16k` (ver TROUBLESHOOTING) |
+| Modelo local pensa e trava | OpenCode 2.1.3 ignora `body` de provider/modelo | plugin `ollama-nothink.ts` (já instalado) |
 | Contexto sempre 4096 | `num_ctx` via config de provider é ignorado | modelo derivado com `PARAMETER num_ctx` |
+| `exec-docs` 4B edita mas não retorna | o 4B entra em loop/lentidão após a edição | `exec-docs` usa o modelo principal; o 4B fica para leitura/planejamento/revisão |
 | Sessão nova cai em modelo pago | `OPENCODE_CONFIG_CONTENT` antiga no serviço | limpar a variável e reiniciar |
 | `opencode run --agent X` usa modelo errado | bug/limitação v2.1.3 | passar `--model` explícito |
 

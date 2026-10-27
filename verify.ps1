@@ -18,7 +18,7 @@
 [CmdletBinding()]
 param(
     [switch]$Smoke,
-    [string]$ExpectedModel = "qwen3-16k:latest"
+    [string[]]$ExpectedModels = @("qwen3.5-4b-16k:latest", "qwen3.5-2b-16k:latest", "qwen-coder-8k:latest")
 )
 
 $ErrorActionPreference = "Continue"
@@ -71,6 +71,10 @@ if (-not (Test-Path -LiteralPath $Target)) {
     }
 }
 
+Step "Plugin de thinking do Ollama"
+$Plugin = Join-Path (Join-Path $env:USERPROFILE ".config\opencode") "plugins\ollama-nothink.ts"
+if (Test-Path -LiteralPath $Plugin) { Ok "plugin presente: $Plugin" } else { Warn2 "plugin ausente: $Plugin (rode .\install.ps1)" }
+
 Step "Variável de ambiente OPENCODE_CONFIG_CONTENT"
 if ($env:OPENCODE_CONFIG_CONTENT) {
     Warn2 "definida ($($env:OPENCODE_CONFIG_CONTENT.Length) chars) e sobrepõe o arquivo"
@@ -83,22 +87,24 @@ if ($env:OPENCODE_CONFIG_CONTENT) {
     Ok "ausente"
 }
 
-Step "Modelo local no Ollama"
+Step "Modelos locais no Ollama"
 if ($bins.ContainsKey("ollama")) {
     $list = (& ollama list 2>&1 | Out-String)
-    if ($list -match ("(?m)^\s*" + [regex]::Escape($ExpectedModel))) {
-        Ok "modelo presente: $ExpectedModel"
-        $mf = (& ollama show $ExpectedModel --modelfile 2>&1 | Out-String)
-        $m = [regex]::Match($mf, "(?m)^PARAMETER\s+num_ctx\s+(\d+)")
-        if ($m.Success) {
-            Ok "num_ctx: $($m.Groups[1].Value)"
-            if ([int]$m.Groups[1].Value -lt 8192) { Warn2 "contexto baixo para leitura de código (recomendado >= 8192)" }
+    foreach ($model in $ExpectedModels) {
+        if ($list -match ("(?m)^\s*" + [regex]::Escape($model))) {
+            Ok "modelo presente: $model"
+            $mf = (& ollama show $model --modelfile 2>&1 | Out-String)
+            $m = [regex]::Match($mf, "(?m)^PARAMETER\s+num_ctx\s+(\d+)")
+            if ($m.Success) {
+                Ok "num_ctx: $($m.Groups[1].Value)"
+                if ([int]$m.Groups[1].Value -lt 8192) { Warn2 "contexto baixo para leitura de código (recomendado >= 8192)" }
+            } else {
+                Bad "modelo sem PARAMETER num_ctx (contexto cai para o padrão do Ollama)"
+                Write-Host "     recrie: .\install.ps1 -Force"
+            }
         } else {
-            Bad "modelo sem PARAMETER num_ctx (contexto cai para o padrão do Ollama)"
-            Write-Host "     recrie: .\install.ps1 -Force"
+            Bad "modelo não encontrado: $model (rode .\install.ps1)"
         }
-    } else {
-        Bad "modelo não encontrado: $ExpectedModel (rode .\install.ps1)"
     }
 }
 
@@ -167,8 +173,8 @@ if (-not $rt) {
         $call = (@{jsonrpc="2.0"; id=2; method="tools/call"; params=@{name="run_tests"; arguments=@{command=$cmd}}} | ConvertTo-Json -Depth 5 -Compress)
         (@($init, $call) | & orq-run-tests) | Select-Object -Last 1
     }
-    if ((Invoke-RunTests "git --version") -match '"verdict":"passou"') { Ok "git --version -> passou (exit 0 real)" } else { Bad "run_tests não executou comando permitido" }
-    if ((Invoke-RunTests "composer install") -match '"verdict":"bloqueado"') { Ok "composer install -> bloqueado" } else { Bad "run_tests deixou passar comando negado" }
+    if ((Invoke-RunTests "git --version") -match '"verdict":\s*"passou"') { Ok "git --version -> passou (exit 0 real)" } else { Bad "run_tests não executou comando permitido" }
+    if ((Invoke-RunTests "composer install") -match '"verdict":\s*"bloqueado"') { Ok "composer install -> bloqueado" } else { Bad "run_tests deixou passar comando negado" }
 }
 
 Step "Base de conhecimento (kb e embeddings)"

@@ -2,7 +2,7 @@
 # Valida a instalação da orquestração do OpenCode (Linux/macOS).
 set -uo pipefail
 
-EXPECTED_MODEL="qwen3-16k:latest"
+EXPECTED_MODELS=("qwen3.5-4b-16k:latest" "qwen3.5-2b-16k:latest" "qwen-coder-8k:latest")
 
 for arg in "$@"; do
   case "$arg" in
@@ -85,6 +85,14 @@ PY
   fi
 fi
 
+step "Plugin de thinking do Ollama"
+PLUGIN="$(dirname "$TARGET")/plugins/ollama-nothink.ts"
+if [ -f "$PLUGIN" ]; then
+  ok "plugin presente: $PLUGIN"
+else
+  warn "plugin ausente: $PLUGIN (rode ./install.sh)"
+fi
+
 step "Variável de ambiente OPENCODE_CONFIG_CONTENT"
 if [ -n "${OPENCODE_CONFIG_CONTENT:-}" ]; then
   warn "definida (${#OPENCODE_CONFIG_CONTENT} chars) e sobrepõe o arquivo"
@@ -93,23 +101,25 @@ else
   ok "ausente"
 fi
 
-step "Modelo local no Ollama"
+step "Modelos locais no Ollama"
 if command -v ollama >/dev/null 2>&1; then
   list="$(ollama list 2>&1 || true)"
-  if printf '%s\n' "$list" | awk '{print $1}' | grep -qx "$EXPECTED_MODEL"; then
-    ok "modelo presente: $EXPECTED_MODEL"
-    mf="$(ollama show "$EXPECTED_MODEL" --modelfile 2>&1 || true)"
-    ctx="$(printf '%s\n' "$mf" | awk '/^PARAMETER[[:space:]]+num_ctx/ {print $3; exit}')"
-    if [ -n "$ctx" ]; then
-      ok "num_ctx: $ctx"
-      [ "$ctx" -lt 8192 ] && warn "contexto baixo para leitura de código (recomendado >= 8192)"
+  for model in "${EXPECTED_MODELS[@]}"; do
+    if printf '%s\n' "$list" | awk '{print $1}' | grep -qx "$model"; then
+      ok "modelo presente: $model"
+      mf="$(ollama show "$model" --modelfile 2>&1 || true)"
+      ctx="$(printf '%s\n' "$mf" | awk '/^PARAMETER[[:space:]]+num_ctx/ {print $3; exit}')"
+      if [ -n "$ctx" ]; then
+        ok "num_ctx: $ctx"
+        [ "$ctx" -lt 8192 ] && warn "contexto baixo para leitura de código (recomendado >= 8192)"
+      else
+        bad "modelo sem PARAMETER num_ctx (contexto cai para o padrão do Ollama)"
+        echo "     recrie: ./install.sh --force"
+      fi
     else
-      bad "modelo sem PARAMETER num_ctx (contexto cai para o padrão do Ollama)"
-      echo "     recrie: ./install.sh --force"
+      bad "modelo não encontrado: $model (rode ./install.sh)"
     fi
-  else
-    bad "modelo não encontrado: $EXPECTED_MODEL (rode ./install.sh)"
-  fi
+  done
 fi
 
 step "Agentes e permissões efetivas"

@@ -4,15 +4,18 @@
     Instala a configuração global de orquestração do OpenCode (Windows).
 
 .DESCRIPTION
-    Copia opencode/opencode.json para %USERPROFILE%\.config\opencode\opencode.json,
-    com backup do arquivo atual, e garante o modelo derivado do Ollama
-    (qwen3-16k = qwen3:8b + num_ctx 16384).
+    Copia opencode/opencode.json e opencode/plugins/ollama-nothink.ts para
+    %USERPROFILE%\.config\opencode, com backup do arquivo atual, e garante os
+    modelos derivados do Ollama usados pelos subagentes:
+      qwen3.5-4b-16k = qwen3.5:4b + num_ctx 16384
+      qwen3.5-2b-16k = qwen3.5:2b + num_ctx 16384
+      qwen-coder-8k  = qwen2.5-coder:1.5b + num_ctx 8192
 
 .PARAMETER BaseModel
-    Modelo base do Ollama usado para derivar o modelo dos subagentes. Padrão: qwen3:8b
+    Modelo base do Ollama usado no qwen3.5-4b-16k. Padrão: qwen3.5:4b
 
 .PARAMETER Context
-    Valor de num_ctx do modelo derivado. Padrão: 16384
+    Valor de num_ctx do qwen3.5-4b-16k. Padrão: 16384
 
 .PARAMETER SkipModel
     Não mexe no Ollama (a config é instalada do mesmo jeito).
@@ -30,7 +33,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$BaseModel = "qwen3:8b",
+    [string]$BaseModel = "qwen3.5:4b",
     [int]$Context = 16384,
     [switch]$SkipModel,
     [switch]$Link,
@@ -39,7 +42,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }
-$ModelName = "qwen3-16k"
+$Models = @(
+    @{ Name = "qwen3.5-4b-16k"; Base = $BaseModel; Context = $Context },
+    @{ Name = "qwen3.5-2b-16k"; Base = "qwen3.5:2b"; Context = 16384 },
+    @{ Name = "qwen-coder-8k";  Base = "qwen2.5-coder:1.5b"; Context = 8192 }
+)
 
 function Write-Step { param($m) Write-Host ""; Write-Host "==> $m" -ForegroundColor Cyan }
 function Write-Ok   { param($m) Write-Host "  ok  $m" -ForegroundColor Green }
@@ -123,47 +130,77 @@ try {
     exit 1
 }
 
-Write-Step "Instalando o servidor MCP run_tests"
+Write-Step "Instalando o plugin de thinking do Ollama"
+$PluginDir = Join-Path $ConfigDir "plugins"
+New-Item -ItemType Directory -Path $PluginDir -Force | Out-Null
+$PluginSource = Join-Path $RepoDir "opencode\plugins\ollama-nothink.ts"
+if (Test-Path -LiteralPath $PluginSource) {
+    Copy-Item -LiteralPath $PluginSource -Destination (Join-Path $PluginDir "ollama-nothink.ts") -Force
+    Write-Ok "plugin copiado: $PluginDir\ollama-nothink.ts"
+} else {
+    Write-Warn2 "plugin não encontrado: $PluginSource"
+}
+
+Write-Step "Instalando os servidores MCP (run_tests e kb)"
 $BinDir = Join-Path $HOME ".local\bin"
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-$Server = Join-Path $RepoDir "mcp\run_tests\server.py"
 $Py = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } elseif (Get-Command py -ErrorAction SilentlyContinue) { "py -3" } else { $null }
-if (-not $Py) { Write-Fail "python não encontrado (necessário para o run_tests)" }
-Set-Content -LiteralPath (Join-Path $BinDir "orq-run-tests.cmd") -Encoding ASCII -Value "@echo off`r`n$Py `"$Server`" %*"
-Write-Ok "launcher: $BinDir\orq-run-tests.cmd"
-if (($env:PATH -split ";") -notcontains $BinDir) { Write-Warn2 "$BinDir não está no PATH; o OpenCode não achará orq-run-tests" }
+if (-not $Py) { Write-Fail "python não encontrado (necessário para run_tests e kb)" }
+$servers = @(
+    @{ Name = "orq-run-tests"; Script = Join-Path $RepoDir "mcp\run_tests\server.py" },
+    @{ Name = "orq-kb";        Script = Join-Path $RepoDir "mcp\kb\kb.py" }
+)
+foreach ($s in $servers) {
+    $launcher = Join-Path $BinDir ($s.Name + ".cmd")
+    Set-Content -LiteralPath $launcher -Encoding ASCII -Value "@echo off`r`n$Py `"$($s.Script)`" %*"
+    Write-Ok "launcher: $launcher"
+}
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (($userPath -split ";") -notcontains $BinDir) {
+    [Environment]::SetEnvironmentVariable("Path", ($userPath.TrimEnd(";") + ";" + $BinDir), "User")
+    Write-Ok "PATH do usuário atualizado com $BinDir (reabra o OpenCode)"
+} elseif (($env:PATH -split ";") -notcontains $BinDir) {
+    Write-Warn2 "$BinDir está no PATH do usuário, mas não nesta sessão; reabra o OpenCode"
+} else {
+    Write-Ok "PATH já contém $BinDir"
+}
 
 if ($SkipModel) {
     Write-Step "Ollama: ignorado (-SkipModel)"
-    Write-Warn2 "o local-helper espera o modelo '$ModelName' já existente"
+    Write-Warn2 "os subagentes esperam qwen3.5-4b-16k, qwen3.5-2b-16k e qwen-coder-8k"
 } else {
-    Write-Step "Garantindo o modelo local '$ModelName' (ctx $Context)"
     $list = (& ollama list 2>&1 | Out-String)
     $prefix = "(?m)^\s*"
-    $exists = $list -match ($prefix + [regex]::Escape($ModelName))
-
-    if ($exists -and -not $Force) {
-        Write-Ok "modelo '$ModelName' já existe (use -Force para recriar)"
-    } elseif ($list -notmatch ($prefix + [regex]::Escape($BaseModel))) {
-        Write-Warn2 "modelo base '$BaseModel' não encontrado no Ollama"
-        Write-Host "  1) ollama pull $BaseModel"
-        Write-Host "  2) .\install.ps1            # cria o $ModelName"
-        Write-Host "  (a configuração do OpenCode já foi instalada)"
-    } else {
+    foreach ($m in $Models) {
+        $name = $m.Name
+        $base = $m.Base
+        $ctx  = $m.Context
+        Write-Step "Garantindo o modelo local '$name' (ctx $ctx)"
+        $exists = $list -match ($prefix + [regex]::Escape($name))
+        if ($exists -and -not $Force) {
+            Write-Ok "modelo '$name' já existe (use -Force para recriar)"
+            continue
+        }
+        if ($list -notmatch ($prefix + [regex]::Escape($base))) {
+            Write-Warn2 "modelo base '$base' não encontrado no Ollama"
+            Write-Host "  1) ollama pull $base"
+            Write-Host "  2) .\install.ps1            # cria o $name"
+            continue
+        }
         $mf = Join-Path $env:TEMP ("Modelfile-orquestrador-{0}" -f (Get-Random))
-        "FROM $BaseModel`nPARAMETER num_ctx $Context" | Out-File -LiteralPath $mf -Encoding ascii
+        "FROM $base`nPARAMETER num_ctx $ctx" | Out-File -LiteralPath $mf -Encoding ascii
         try {
-            & ollama create $ModelName -f $mf | Out-Host
+            & ollama create $name -f $mf | Out-Host
             if ($LASTEXITCODE -ne 0) { throw "ollama create retornou $LASTEXITCODE" }
             Remove-Item -LiteralPath $mf -Force -ErrorAction SilentlyContinue
-            Write-Ok "modelo '$ModelName' criado com num_ctx $Context"
+            Write-Ok "modelo '$name' criado com num_ctx $ctx"
         } catch {
             Remove-Item -LiteralPath $mf -Force -ErrorAction SilentlyContinue
-            Write-Fail "falha ao criar o modelo: $($_.Exception.Message)"
+            Write-Fail "falha ao criar o modelo '$name': $($_.Exception.Message)"
             Write-Host "  Crie manualmente:"
-            Write-Host "    FROM $BaseModel"
-            Write-Host "    PARAMETER num_ctx $Context"
-            Write-Host "    ollama create $ModelName -f <arquivo>"
+            Write-Host "    FROM $base"
+            Write-Host "    PARAMETER num_ctx $ctx"
+            Write-Host "    ollama create $name -f <arquivo>"
             exit 1
         }
     }

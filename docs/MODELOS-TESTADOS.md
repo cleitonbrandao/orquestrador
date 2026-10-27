@@ -59,3 +59,24 @@ divisor, executor, revisor) e por quê. A decisão final vai para `ARQUITETURA.m
 | Divisor | | |
 | Executor | | |
 | Revisor | | |
+
+## Decisão do fluxo (2026-10-27)
+
+Medido nesta máquina, sem estimativa. O `qwen3.5:4b` foi o único que passou nos quatro
+critérios (A planejamento, B JSON, C código, D revisão); o `qwen3.5:2b` passou em D e foi
+adotado no `revisor`; `gemma4:e4b`, `bonsai-2:4b` e `qwen3.5:2b` no papel de executor
+quebraram/inventaram no relatório real e foram descartados para essa etapa.
+
+| Etapa / agente | Modelo | Evidência |
+|---|---|---|
+| `local-helper` (leitura, kb/trail) | `qwen3.5-4b-16k` | respondeu usando `kb`; ferramentas MCP visíveis com `codemode: false` |
+| `decompositor` (planejamento) | `qwen3.5-4b-16k` | passou em A/B no benchmark |
+| `revisor` (advisory) | `qwen3.5-2b-16k` | passou em D; apontou risco real (`$guarded = []`) |
+| `local-mini` (leitura pontual) | `qwen-coder-8k` | coder 1.5B; sem benchmark de agente completo |
+| `exec-docs` (edição de Markdown) | **modelo principal** | o 4B editou corretamente em uma execução, mas travou antes/depois em outras (sem retorno em 120–240 s); o coder 1.5B não chama `edit` e inventa comando |
+| Testes | `run_tests` (MCP) | determinístico; suíte real do `ia_relatorios`: 46 passed |
+
+O `qwen3.5:4b` **não** foi adotado no `exec-docs` por instabilidade do loop de ferramentas,
+não por qualidade de texto. O plugin `ollama-nothink.ts` resolve o thinking
+(`reasoning_effort: "none"`), mas não o travamento após a edição. Para docs, o `exec-docs`
+usa o modelo principal e o verificador de docs roda no orquestrador.
