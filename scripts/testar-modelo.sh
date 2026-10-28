@@ -23,6 +23,7 @@ AVALIADOR="$RAIZ/scripts/avaliar_respostas.py"
 RELATORIO="$RAIZ/scripts/relatorio.py"
 SAIDA="${ORQ_RESULTADOS:-$RAIZ/docs/resultados}"   # ORQ_RESULTADOS isola testes do CSV real
 CSV="$SAIDA/resultados.csv"
+CSV_DECISAO="$SAIDA/decisao.csv"
 # shellcheck source=limpar-ram.sh
 source "$RAIZ/scripts/limpar-ram.sh"
 
@@ -32,11 +33,16 @@ source "$RAIZ/scripts/visual.sh"
 # passo <n> <texto>: linha de progresso (n de 5)
 passo() { printf '  %s%s%s %s[%s/5]%s %s\n' "$(fg "$P_AMAR")" "$I_TESTE" "$N" "$DIM" "$1" "$N" "$2"; }
 
-# situacao <modelo>: última nota e tok/s do modelo (qualquer thinking), ou vazio se nunca testado.
-# Colunas do CSV: 2 modelo, 4 tok/s geração, 15 nota.
+# situacao <modelo>: última nota e tok/s do modelo (texto), ou da trilha de decisão.
 situacao() {
-  [ -f "$CSV" ] || return 0
-  awk -F, -v n="${1%:latest}" 'NR>1 { m=$2; sub(/:latest$/,"",m); if (m==n) r="nota " $15 "/100, " $4 " tok/s" } END { print r }' "$CSV"
+  local r=""
+  if [ -f "$CSV" ]; then
+    r="$(awk -F, -v n="${1%:latest}" 'NR>1 { m=$2; sub(/:latest$/,"",m); if (m==n) r="nota " $15 "/100, " $4 " tok/s" } END { print r }' "$CSV")"
+  fi
+  if [ -z "$r" ] && [ -f "$CSV_DECISAO" ]; then
+    r="$(awk -F, -v n="${1%:latest}" 'NR>1 { m=$2; sub(/:latest$/,"",m); if (m==n) r="decisão " $6 "/" $3 " (" $7 "%), nota " $14 "/100" } END { print r }' "$CSV_DECISAO")"
+  fi
+  [ -n "$r" ] && echo "$r"
 }
 
 listar() {
@@ -104,6 +110,16 @@ if ! curl -s "$API/api/tags" | jq -e --arg m "$MODELO" \
 fi
 
 if ! gera_texto "$MODELO"; then
+  # Modelo de decisão (d3, tev1): não gera texto, vai para a trilha E.
+  if tem_decisao "$MODELO"; then
+    if [ "$SO_VELOCIDADE" = 1 ]; then
+      echo "${AMAR}$MODELO é modelo de decisão: não tem tok/s.${N} Use /decisao $MODELO (acerto e escalada)." >&2
+      exit 2
+    fi
+    args=("$MODELO")
+    [ "$LIMPAR" = 1 ] && args+=(--limpar)
+    exec "$RAIZ/scripts/testar-decisor.sh" "${args[@]}"
+  fi
   echo "${VERM}${I_FALHA} $MODELO não gera texto (modelo de embeddings).${N} Ele não responde aos prompts de teste;" >&2
   echo "  escolha um modelo de linguagem. Use /list para ver os testáveis." >&2
   exit 1

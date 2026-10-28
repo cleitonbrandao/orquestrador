@@ -65,9 +65,11 @@ ajuda() {
   titulo() { printf '\n  %s%s%s\n' "$(fg "$1")$(neg)" "$2" "$(rs)"; }
   titulo "$P_VERDE" "$I_FRASCO  Testar"
   cmd_linha " " "$P_VERDE"  "/test [modelo]"  "teste completo (--think, --rapido, --sem-limpeza)"
+  cmd_linha " " "$P_VERDE"  "/decisao [modelo]" "modelo de decisão (d3, tev1): acerto, escalada e nota"
   cmd_linha " " "$P_AMAR"   "/bench [modelo]" "só velocidade, sem salvar (também /benchmark)"
   titulo "$P_ROSA" "$I_TROFEU  Ver resultados"
   cmd_linha " " "$P_ROSA"   "/rank"           "ranking por tok/s, com barra e a nota ao lado"
+  cmd_linha " " "$P_ROSA"   "/rank-decisao"    "ranking dos decisores: acerto, escalada e erro confiante"
   cmd_linha " " "$P_ROSA"   "/nota"           "ranking por nota, com tok/s, A-D e etapas em que serve"
   cmd_linha " " "$P_CIANO"  "/list"           "testados (com a nota) e instalados ainda sem teste"
   cmd_linha " " "$P_CIANO"  "/ver <modelo>"   "histórico completo de um modelo"
@@ -133,10 +135,14 @@ while true; do
     /test|/t)
       preparar "${args[@]}"; sem_flag_limpeza "${args[@]}"
       "$TESTAR" "${ARGS[@]}" ;;
+    /decisao|/decisão|/d)
+      preparar "${args[@]}"; sem_flag_limpeza "${args[@]}"
+      "$RAIZ/scripts/testar-decisor.sh" "${ARGS[@]}" ;;
     /bench|/benchmark|/b)
       preparar "${args[@]}"; sem_flag_limpeza "${args[@]}"
       "$TESTAR" --velocidade "${ARGS[@]}" ;;
     /rank|/r)   python3 -I "$RELATORIO" rank ;;
+    /rank-decisao|/decisoes) python3 -I "$RELATORIO" decisao ;;
     /nota|/n)   python3 -I "$RELATORIO" nota ;;
     /list|/l)   python3 -I "$RELATORIO" lista --instalados "$(instalados)" ;;
     /ver|/v)    python3 -I "$RELATORIO" ver "${args[@]}" ;;

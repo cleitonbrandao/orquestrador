@@ -79,9 +79,11 @@ function Titulo([string]$cor, [string]$texto) { Write-Host ""; Write-Host ("  " 
 function Ajuda {
     Titulo $PAL.Verde "$($ICO.Frasco)  Testar"
     CmdLinha " " $PAL.Verde "/test [modelo]" "teste completo (--think, --rapido, --sem-limpeza)"
+    CmdLinha " " $PAL.Verde "/decisao [modelo]" "modelo de decisão (d3, tev1): acerto, escalada e nota"
     CmdLinha " " $PAL.Amar "/bench [modelo]" "só velocidade, sem salvar (também /benchmark)"
     Titulo $PAL.Rosa "$($ICO.Trofeu)  Ver resultados"
     CmdLinha " " $PAL.Rosa "/rank" "ranking por tok/s, com barra e a nota ao lado"
+    CmdLinha " " $PAL.Rosa "/rank-decisao" "ranking dos decisores: acerto, escalada e erro confiante"
     CmdLinha " " $PAL.Rosa "/nota" "ranking por nota, com tok/s, A-D e etapas em que serve"
     CmdLinha " " $PAL.Ciano "/list" "testados (com a nota) e instalados ainda sem teste"
     CmdLinha " " $PAL.Ciano "/ver <modelo>" "histórico completo de um modelo"
@@ -181,7 +183,14 @@ try {
                     & $TESTAR -Velocidade @h
                     break
                 }
+                '^/decisao$' {
+                    Preparar $resto
+                    $limpos = @($resto | Where-Object { $_ -ne "--sem-limpeza" })
+                    & (Join-Path $PSScriptRoot "testar-decisor.ps1") @limpos
+                    break
+                }
                 '^/(rank|r)$' { Invoke-Py $RELATORIO rank; break }
+                '^/(rank-decisao|decisoes)$' { Invoke-Py $RELATORIO decisao; break }
                 '^/(nota|n)$' { Invoke-Py $RELATORIO nota; break }
                 '^/(list|l)$' { Invoke-Py $RELATORIO lista --instalados (Instalados); break }
                 '^/(ver|v)$' { Invoke-Py $RELATORIO ver @resto; break }

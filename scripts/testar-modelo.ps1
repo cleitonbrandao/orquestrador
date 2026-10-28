@@ -107,6 +107,18 @@ if (-not $instalado) {
 }
 
 if (-not (GeraTexto $Modelo)) {
+    # Modelo de decisão (d3, tev1): não gera texto, vai para a trilha E.
+    if (TemDecisao $Modelo) {
+        if ($Velocidade) {
+            Write-Host ((Fg $PAL.Amar) + "$Modelo é modelo de decisão: não tem tok/s." + (Rs) + " Use /decisao $Modelo (acerto e escalada).")
+            exit 2
+        }
+        $decisor = Join-Path $PSScriptRoot "testar-decisor.ps1"
+        $argumentos = @($Modelo)
+        if ($Limpar) { $argumentos += "--limpar" }
+        & $decisor @argumentos
+        exit $LASTEXITCODE
+    }
     Write-Host ((Fg $PAL.Verm) + "$($ICO.Xis) $Modelo não gera texto (modelo de embeddings)." + (Rs) + " Ele não responde aos prompts de teste;") -ForegroundColor Red
     Write-Host "  escolha um modelo de linguagem. Use /list para ver os testáveis."
     exit 1

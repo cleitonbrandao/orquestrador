@@ -7,6 +7,7 @@ Uso: python3 -I relatorio.py <comando> [argumentos] [--csv ARQ] [--instalados a,
   lista             todos os modelos testados (último teste) com a nota, mais os pendentes
   ver <modelo>      histórico completo de um modelo
   html [--abrir]    gera docs/resultados/relatorio.html (e abre no navegador com --abrir)
+  decisao           ranking da trilha E (acerto/escalada), lê decisao.csv
   reprovados        modelos instalados e reprovados, em TSV (--min-qualidade N, --min-toks N)
 Só usa a biblioteca padrão.
 """
@@ -164,6 +165,42 @@ def sem_dados(caminho):
     print(apagado(f"Nenhum teste salvo ainda ({os.path.relpath(caminho, RAIZ)}). Rode /test."))
 
 
+def _decisores(caminho):
+    """Último resultado de cada modelo na trilha E (decisao.csv, ao lado do CSV de texto)."""
+    arq = os.path.join(os.path.dirname(caminho or CSV_PADRAO), "decisao.csv")
+    if not os.path.exists(arq):
+        return {}
+    ultimos = {}
+    with open(arq, encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            m = (r.get("modelo") or "").strip()
+            if m and (m not in ultimos or (r.get("data") or "") >= (ultimos[m].get("data") or "")):
+                ultimos[m] = r
+    return ultimos
+
+
+def cmd_decisao(caminho=None, **kwargs):
+    """Ranking da trilha E (decisão), lido de decisao.csv na mesma pasta do CSV de texto."""
+    ultimos = _decisores(caminho)
+    if not ultimos:
+        print(apagado("Sem testes de decisão ainda. Rode: scripts/testar-decisor.sh <modelo>"))
+        return
+    cabecalho("Ranking de decisão", "acerto em casos rotulados · escalada = quanto cai no modelo maior", I_TROFEU, ROXO)
+    tabela([("MODELO", 22, "<"), ("CASOS", 7, ">"), ("SPLIT", 5, "<"), ("ACERTO", 6, ">"), ("", 16, "<"),
+            ("ESCALA", 7, ">"), ("CONV.", 5, ">"), ("P50", 7, ">"), ("NOTA", 4, ">")],
+           [[(m, negrito(m)),
+             (f"{r.get('acerto')}/{r.get('casos')}", apagado(f"{r.get('acerto')}/{r.get('casos')}")),
+             (r.get('split') or "", apagado(r.get('split') or "")),
+             (f"{num(r.get('acerto_pct')):.0f}%", cor_nota(int(num(r.get('acerto_pct'))), f"{num(r.get('acerto_pct')):.0f}%")),
+             ("", barra(num(r.get("acerto_pct")), 100, 16, VERDE)),
+             (f"{num(r.get('taxa_escalada_pct')):.0f}%", ciano(f"{num(r.get('taxa_escalada_pct')):.0f}%")),
+             (r.get("falhas") or "0", r.get("falhas") or "0"),
+             (f"{num(r.get('p50_ms')):.0f}ms", apagado(f"{num(r.get('p50_ms')):.0f}ms")),
+             (f"{int(num(r.get('nota')))}", cor_nota(int(num(r.get('nota'))), f"{int(num(r.get('nota')))}"))]
+            for m, r in sorted(ultimos.items(), key=lambda kv: (-num(kv[1].get("acerto_pct")), num(kv[1].get("taxa_escalada_pct"))))])
+    print(apagado("  CONV. = erros com confiança (o caso perigoso). Nota considera acerto, escalada e tempo."))
+
+
 def cmd_rank(ultimos, caminho, **_):
     if not ultimos:
         return sem_dados(caminho)
@@ -207,6 +244,8 @@ def cmd_nota(ultimos, caminho, **_):
 def cmd_lista(ultimos, caminho, instalados=(), **_):
     cabecalho("Modelos testados e pendentes", icone=I_FRASCO, cor_fundo=AZUL)
     testados = {r["modelo"].removesuffix(":latest") for r in ultimos}
+    dec = _decisores(caminho)
+    testados |= {m.removesuffix(":latest") for m in dec}
     instalados_set = {m.removesuffix(":latest") for m in instalados} if instalados else None
     if ultimos:
         linhas = []
@@ -231,6 +270,14 @@ def cmd_lista(ultimos, caminho, instalados=(), **_):
         print(apagado("  [OK] instalado localmente    [⊘] resultado salvo, mas modelo removido (/prune)"))
     else:
         sem_dados(caminho)
+    if dec:
+        print()
+        print("  " + negrito("Decisores (trilha E): acerto em casos rotulados / quanto escala"))
+        for m, r in sorted(dec.items(), key=lambda kv: -num(kv[1].get("acerto_pct"))):
+            pct = num(r.get("acerto_pct"))
+            print(f"  {c('35', '◆')} {m:<28} {cor_nota(int(pct), f'{pct:.0f}%')}  "
+                  + apagado(f"{r.get('acerto')}/{r.get('casos')} · escalada {num(r.get('taxa_escalada_pct')):.0f}%"
+                            f" · {r.get('split') or ''}"))
     pendentes = [m for m in instalados if m.removesuffix(":latest") not in testados]
     if pendentes:
         print()
@@ -385,7 +432,7 @@ def cmd_reprovados(linhas, caminho, instalados=(), min_qualidade=30.0, min_toks=
             print("\t".join([nome, f"{q:g}", f"{t:g}", "; ".join(motivos)]))
 
 
-COMANDOS = {"reprovados": cmd_reprovados, "rank": cmd_rank, "nota": cmd_nota, "lista": cmd_lista, "ver": cmd_ver, "html": cmd_html}
+COMANDOS = {"reprovados": cmd_reprovados, "rank": cmd_rank, "nota": cmd_nota, "lista": cmd_lista, "ver": cmd_ver, "html": cmd_html, "decisao": cmd_decisao}
 
 
 def main():

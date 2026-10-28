@@ -83,12 +83,21 @@ function GeraTexto([string]$modelo) {
     return (@($r.capabilities) -contains "completion")
 }
 
-# NomesTestaveis: modelos instalados que geram texto.
+# TemDecisao <modelo>: $true para modelos de decisão (/v1/systemone: d3, tev1, strands-decider).
+function TemDecisao([string]$modelo) {
+    $r = Invoke-Ollama "/api/show" @{ model = $modelo } -Timeout 10
+    if ($null -eq $r -or $null -eq $r.capabilities) { return $false }
+    return (@($r.capabilities) -contains "decision")
+}
+
+# NomesTestaveis: modelos instalados que geram texto ou decidem.
 function NomesTestaveis {
     $tags = Invoke-Ollama "/api/tags" -Get -Timeout 5
     if ($null -eq $tags) { return @() }
     $saida = @()
-    foreach ($m in @($tags.models)) { if (GeraTexto $m.name) { $saida += $m.name } }
+    foreach ($m in @($tags.models)) {
+        if ((GeraTexto $m.name) -or (TemDecisao $m.name)) { $saida += $m.name }
+    }
     return $saida
 }
 

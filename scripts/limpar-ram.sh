@@ -23,10 +23,18 @@ gera_texto() {
     | jq -e '(.capabilities // ["completion"]) | index("completion")' >/dev/null
 }
 
-# nomes_testaveis: modelos instalados que geram texto, um por linha.
+# tem_decisao <modelo>: sucesso para modelos de decisão (/v1/systemone: d3, tev1, strands-decider).
+tem_decisao() {
+  curl -s --max-time 5 "$API/api/show" -d "$(jq -n --arg m "$1" '{model:$m}')" \
+    | jq -e '.capabilities // [] | index("decision")' >/dev/null
+}
+
+# nomes_testaveis: modelos instalados que geram texto ou decidem, um por linha.
 nomes_testaveis() {
   local n
-  while read -r n; do gera_texto "$n" && echo "$n"; done < <(curl -s --max-time 5 "$API/api/tags" | jq -r '.models[].name')
+  while read -r n; do
+    { gera_texto "$n" || tem_decisao "$n"; } && echo "$n"
+  done < <(curl -s --max-time 5 "$API/api/tags" | jq -r '.models[].name')
 }
 
 mem_disp_mb() { awk '/^MemAvailable:/{print int($2/1024)}' /proc/meminfo; }

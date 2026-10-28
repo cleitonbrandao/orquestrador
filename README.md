@@ -17,8 +17,7 @@ Funciona em **Windows** e **Linux/macOS**, em qualquer repositório, sem precisa
 - Ambiente onde foi validado: [`docs/AMBIENTE.md`](docs/AMBIENTE.md)
 - Decisões e evidências: [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md)
 - Problemas conhecidos: [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)
-
----
+- Testes de modelos para suporte e análise de texto (trilhas E e F): [`docs/PLANO-TESTES-SUPORTE.md`](docs/PLANO-TESTES-SUPORTE.md)---
 
 ## Como funciona
 
@@ -47,6 +46,10 @@ Funciona em **Windows** e **Linux/macOS**, em qualquer repositório, sem precisa
 | `local-mini` | `ollama/qwen-coder-8k:latest` | leitura pontual de um trecho/arquivo curto |
 | `run_tests` | MCP determinístico (Python stdlib) | rodar testes e devolver saída literal |
 | `kb` / `trail` | MCP | busca por trechos e grafo de símbolos |
+
+**Modelos de decisão** (`d3`, `tev1`) não geram texto e usam `/v1/systemone`. O `/test` detecta a
+capacidade `decision` e cai na trilha E (`scripts/testar-decisor.sh`), que mede **acerto em casos
+rotulados, taxa de escalada e latência** — não tok/s. Dataset em `casos/suporte/decisao/`.
 
 **Por que `run_tests` e não um agente LLM:** rodar um comando e devolver stdout + exit code
 não exige modelo; um modelo pequeno só acrescenta o risco de "inventar" o resultado.
@@ -207,6 +210,25 @@ RESULTADO: passou
 
 `passou` = exit code 0 real. Se o agente inventar contagem de testes, veja
 [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).
+
+---
+
+## Escopo dos testes
+
+Para não perder tempo rodando áreas não afetadas, a orquestração segue a regra de
+**escopo mínimo**:
+
+- Cada tarefa do plano traz um `comando_teste` restrito ao fluxo alterado (filter por
+  arquivo/classe/método), nunca a suite inteira.
+- O executor roda **apenas** esse comando via `run_tests`; se não houver teste
+  específico para o escopo, o comando é `nenhum` e a tarefa é validada por inspeção.
+- Na etapa `INTEGRAR`, o orquestrador roda somente os testes dos arquivos tocados pela
+  mudança (ou o teste de integração dedicado ao fluxo, se existir) — nunca a suite
+  completa nem áreas não afetadas.
+- Se um fluxo novo for desenvolvido, testa-se apenas aquele escopo.
+
+Essa regra está embutida nos prompts dos agentes (`orquestrador`, `decompositor` e
+executores) em `opencode/opencode.json`.
 
 ---
 
