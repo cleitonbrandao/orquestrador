@@ -42,6 +42,7 @@ function Banner {
     Write-Host ""
     CmdLinha $ICO.Frasco $PAL.Verde "/test <modelo>" "teste completo: velocidade, qualidade e nota"
     CmdLinha $ICO.Bolt $PAL.Amar "/bench <modelo>" "só velocidade (tok/s)"
+    CmdLinha $ICO.Chip $PAL.Laranja "/omni <modelo>" "benchmark multimodal: texto, imagem, áudio, fala"
     CmdLinha $ICO.Trofeu $PAL.Rosa "/rank" "ranking por tok/s, com a nota ao lado"
     CmdLinha $ICO.Trofeu $PAL.Rosa "/nota" "ranking por nota, com o tok/s ao lado"
     CmdLinha $ICO.Painel $PAL.Ciano "/list" "testados com nota e pendentes"
@@ -81,6 +82,7 @@ function Ajuda {
     CmdLinha " " $PAL.Verde "/test [modelo]" "teste completo (--think, --rapido, --sem-limpeza)"
     CmdLinha " " $PAL.Verde "/decisao [modelo]" "modelo de decisão (d3, tev1): acerto, escalada e nota"
     CmdLinha " " $PAL.Amar "/bench [modelo]" "só velocidade, sem salvar (também /benchmark)"
+    CmdLinha " " $PAL.Laranja "/omni [modelo]" "benchmark multimodal (--only, --audio, --image, --num-predict)"
     Titulo $PAL.Rosa "$($ICO.Trofeu)  Ver resultados"
     CmdLinha " " $PAL.Rosa "/rank" "ranking por tok/s, com barra e a nota ao lado"
     CmdLinha " " $PAL.Rosa "/rank-decisao" "ranking dos decisores: acerto, escalada e erro confiante"
@@ -127,6 +129,24 @@ function Para-Splat([string[]]$tokens) {
             "--rapido" { $h["Rapido"] = $true }
             "--sem-limpeza" { }
             default { if (-not $t.StartsWith("--") -and -not $h.ContainsKey("Modelo")) { $h["Modelo"] = $t } }
+        }
+    }
+    return $h
+}
+
+# Para-Splat-Omni <tokens>: "modelo --only audio --audio fala.wav --sem-salvar"
+function Para-Splat-Omni([string[]]$tokens) {
+    $h = @{}
+    for ($i = 0; $i -lt $tokens.Count; $i++) {
+        switch ($tokens[$i]) {
+            "--sem-salvar" { $h["SemSalvar"] = $true }
+            "--listar" { $h["Listar"] = $true }
+            "--only" { if ($i + 1 -lt $tokens.Count) { $h["Somente"] = $tokens[$i + 1]; $i++ } }
+            "--image" { if ($i + 1 -lt $tokens.Count) { $h["Imagem"] = $tokens[$i + 1]; $i++ } }
+            "--audio" { if ($i + 1 -lt $tokens.Count) { $h["Audio"] = $tokens[$i + 1]; $i++ } }
+            "--num-predict" { if ($i + 1 -lt $tokens.Count) { $h["NumPredict"] = [int]$tokens[$i + 1]; $i++ } }
+            "--sem-limpeza" { }
+            default { if (-not $tokens[$i].StartsWith("--") -and -not $h.ContainsKey("Modelo")) { $h["Modelo"] = $tokens[$i] } }
         }
     }
     return $h
@@ -181,6 +201,12 @@ try {
                     Preparar $resto
                     $h = Para-Splat $resto
                     & $TESTAR -Velocidade @h
+                    break
+                }
+                '^/(omni|multimodal)$' {
+                    Preparar $resto
+                    $h = Para-Splat-Omni $resto
+                    & (Join-Path $PSScriptRoot "bench-omni.ps1") @h
                     break
                 }
                 '^/decisao$' {

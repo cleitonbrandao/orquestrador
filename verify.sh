@@ -2,7 +2,7 @@
 # Valida a instalação da orquestração do OpenCode (Linux/macOS).
 set -uo pipefail
 
-EXPECTED_MODELS=("qwen3.5-4b-16k:latest" "qwen3.5-2b-16k:latest" "qwen-coder-8k:latest")
+EXPECTED_MODELS=("qwen3.5-4b-16k:latest" "qwen3.5-2b-16k:latest" "qwen3.5-08b-8k:latest" "gemma4-e4b-16k:latest")
 
 for arg in "$@"; do
   case "$arg" in

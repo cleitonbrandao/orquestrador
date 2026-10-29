@@ -188,6 +188,56 @@ ollama ps
 
 ---
 
+## Modelo exige MLX (LFM3 no Windows/Linux)
+
+**Sintoma:** `ollama pull lfm3-audio` (ou `lfm3-omni`, `lfm3`, `lfm3-vl`, `d1:2b`) termina
+com:
+
+```
+Error: this model requires MLX support, but the MLX runtime is not available
+```
+
+**Causa:** esses modelos são publicados em `nvfp4` (4 bits) e só são servidos pelo runtime
+MLX. O Ollama 0.40.12 o habilita apenas em Apple Silicon — as notas da release dizem
+"supported on Apple hardware in this release. Support for Linux/Windows coming soon".
+
+**Não é** falta de RAM, VRAM ou driver. Conferir o formato sem baixar:
+
+```bash
+curl -s https://registry.ollama.ai/v2/library/lfm3-audio/manifests/2b \
+  -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+  | python -c "import json,sys; print(json.load(sys.stdin)['layers'][0]['mediaType'])"
+```
+
+**Solução:** esperar o suporte a Linux/Windows, ou rodar numa máquina Apple. Não tente
+requantizar: o checkpoint público é nvfp4 e não há tag `q4_K_M`/`q8_0` no registry.
+Enquanto isso, `scripts/bench-omni.ps1 lfm3-omni` sai com código 3 e explica, em vez de
+medir nada. Ver [`BENCH-OMNI.md`](BENCH-OMNI.md).
+
+---
+
+## Orquestrador não consegue ler arquivo PHP ou SQL
+
+**Sintoma:** o agente principal diz que não pode abrir um controller ou um arquivo de migration
+PHP, ou pede para delegar mesmo quando você quer que ele leia.
+
+**Causa:** é proposital. `read` de `*.php` e `*.sql` está negado no `orquestrador` para manter
+o código fora do contexto pago — leitura vai para `local-helper`/`local-mini`, e a conferência
+do que um executor mudou é feita por `git diff` e `run_tests`.
+
+**Solução, se precisar reverter:** remova as duas entradas do `orquestrador` em
+`opencode.json` e reinicie o OpenCode:
+
+```json
+{ "action": "read", "resource": "*.php", "effect": "deny" },
+{ "action": "read", "resource": "*.sql", "effect": "deny" }
+```
+
+Alternativas que não abrem o arquivo inteiro: `grep` pelo símbolo (saída curta), `git diff`
+para o que mudou, ou delegar ao `local-helper` com a pergunta específica.
+
+---
+
 ## Google: "API key not valid" ou "Connect Google with Antigravity OAuth"
 
 **Sintoma:** escolher um modelo `google/*` falha.

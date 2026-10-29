@@ -8,6 +8,10 @@ Os campos de resultado ficam em branco até alguém medir. Nenhum número aqui f
 > **Decisores e análise de texto ainda não são medidos aqui.** A tabela A–D cobre orquestração de
 > código; para `tev1`, `d3` e afins (que não geram texto) e para os prompts de suporte, o método está
 > em [`PLANO-TESTES-SUPORTE.md`](PLANO-TESTES-SUPORTE.md) (trilhas E e F, com CSV próprio).
+>
+> **Modelos multimodais** (texto, imagem, áudio, fala) têm métricas próprias — RTF, tokens de
+> imagem, TTFT — em [`BENCH-OMNI.md`](BENCH-OMNI.md). A família LFM3 (`lfm3-omni`, `lfm3-audio`)
+> não entra na tabela: exige o runtime MLX e só roda em Apple Silicon no Ollama 0.40.12.
 
 ## Como preencher
 

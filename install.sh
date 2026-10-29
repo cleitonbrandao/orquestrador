@@ -4,9 +4,10 @@
 # Copia opencode/opencode.json e opencode/plugins/ollama-nothink.ts para
 # ${XDG_CONFIG_HOME:-$HOME/.config}/opencode, com backup do arquivo atual, e
 # garante os modelos derivados do Ollama usados pelos subagentes:
-#   qwen3.5-4b-16k = qwen3.5:4b + num_ctx 16384
-#   qwen3.5-2b-16k = qwen3.5:2b + num_ctx 16384
-#   qwen-coder-8k  = qwen2.5-coder:1.5b + num_ctx 8192
+#   qwen3.5-4b-16k  = qwen3.5:4b + num_ctx 16384   (decompositor, local-helper)
+#   qwen3.5-2b-16k  = qwen3.5:2b + num_ctx 16384   (revisor)
+#   qwen3.5-08b-8k  = qwen3.5:0.8b + num_ctx 8192  (local-mini)
+#   gemma4-e4b-16k  = gemma4:e4b + num_ctx 16384   (exec-local, exec-docs)
 set -euo pipefail
 
 BASE_MODEL="qwen3.5:4b"
@@ -43,9 +44,9 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-MODEL_NAMES=("qwen3.5-4b-16k" "qwen3.5-2b-16k" "qwen-coder-8k")
-MODEL_BASES=("$BASE_MODEL" "qwen3.5:2b" "qwen2.5-coder:1.5b")
-MODEL_CTXS=("$CONTEXT" "16384" "8192")
+MODEL_NAMES=("qwen3.5-4b-16k" "qwen3.5-2b-16k" "qwen3.5-08b-8k" "gemma4-e4b-16k")
+MODEL_BASES=("$BASE_MODEL" "qwen3.5:2b" "qwen3.5:0.8b" "gemma4:e4b")
+MODEL_CTXS=("$CONTEXT" "16384" "8192" "16384")
 
 step()  { printf '\n\033[36m==> %s\033[0m\n' "$1"; }
 ok()    { printf '  \033[32mok\033[0m  %s\n' "$1"; }
@@ -158,12 +159,15 @@ ok "launcher: $BIN_DIR/orq-run-tests -> mcp/run_tests/server.py"
 chmod +x "$REPO_DIR/mcp/kb/kb.py"
 ln -sf "$REPO_DIR/mcp/kb/kb.py" "$BIN_DIR/orq-kb"
 ok "launcher: $BIN_DIR/orq-kb -> mcp/kb/kb.py"
+chmod +x "$REPO_DIR/mcp/decisao/server.py"
+ln -sf "$REPO_DIR/mcp/decisao/server.py" "$BIN_DIR/orq-decisor"
+ok "launcher: $BIN_DIR/orq-decisor -> mcp/decisao/server.py"
 command -v python3 >/dev/null 2>&1 || fail "python3 não encontrado (necessário para o run_tests)"
-case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR não está no PATH; o OpenCode não achará orq-run-tests/orq-kb" ;; esac
+case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR não está no PATH; o OpenCode não achará orq-run-tests/orq-kb/orq-decisor" ;; esac
 
 if [ "$SKIP_MODEL" -eq 1 ]; then
   step "Ollama: ignorado (--no-model)"
-  warn "os subagentes esperam qwen3.5-4b-16k, qwen3.5-2b-16k e qwen-coder-8k"
+  warn "os subagentes esperam qwen3.5-4b-16k, qwen3.5-2b-16k, qwen3.5-08b-8k e gemma4-e4b-16k"
 else
   list="$(ollama list 2>&1 || true)"
   for i in "${!MODEL_NAMES[@]}"; do

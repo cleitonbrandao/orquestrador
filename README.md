@@ -17,7 +17,12 @@ Funciona em **Windows** e **Linux/macOS**, em qualquer repositório, sem precisa
 - Ambiente onde foi validado: [`docs/AMBIENTE.md`](docs/AMBIENTE.md)
 - Decisões e evidências: [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md)
 - Problemas conhecidos: [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)
-- Testes de modelos para suporte e análise de texto (trilhas E e F): [`docs/PLANO-TESTES-SUPORTE.md`](docs/PLANO-TESTES-SUPORTE.md)---
+- Testes de modelos para suporte e análise de texto (trilhas E e F): [`docs/PLANO-TESTES-SUPORTE.md`](docs/PLANO-TESTES-SUPORTE.md)
+- Benchmark multimodal (texto, imagem, áudio, fala): [`docs/BENCH-OMNI.md`](docs/BENCH-OMNI.md)
+- Distribuição local vs. pago: [`docs/DISTRIBUICAO.md`](docs/DISTRIBUICAO.md)
+- Consumo de tokens por agente: [`scripts/custo_agentes.py`](scripts/custo_agentes.py)
+
+---
 
 ## Como funciona
 
@@ -38,14 +43,24 @@ Funciona em **Windows** e **Linux/macOS**, em qualquer repositório, sem precisa
 
 | Componente | Modelo / tipo | Papel |
 |---|---|---|
-| `orquestrador` | primary, **sem pin** (segue `/models`) | arquitetura, mudanças complexas, integração |
+| `orquestrador` | primary, **sem pin** (segue `/models`) | arquitetura, mudanças complexas, integração; não lê PHP/SQL — delega |
 | `decompositor` | `ollama/qwen3.5-4b-16k:latest` | quebrar pedido em tarefas (read-only) |
 | `local-helper` | `ollama/qwen3.5-4b-16k:latest` | ler/explicar código; usa `kb` e `trail` |
-| `exec-docs` | modelo principal (fallback; 4B local instável) | editar Markdown; verificação fica no orquestrador |
+| `local-mini` | `ollama/qwen3.5-08b-8k:latest` | leitura pontual de um trecho/arquivo curto |
 | `revisor` | `ollama/qwen3.5-2b-16k:latest` | revisão advisory do diff, sem ferramentas |
-| `local-mini` | `ollama/qwen-coder-8k:latest` | leitura pontual de um trecho/arquivo curto |
+| `exec-local` | `ollama/gemma4-e4b-16k:latest` | edição pequena em **um** arquivo, com teste determinístico |
+| `exec-docs` | `ollama/gemma4-e4b-16k:latest` | editar Markdown; verificação fica no orquestrador |
+| `executor` | modelo principal | edição geral (o que não é arquivo único) |
+| `exec-backend` | modelo principal | PHP/Laravel: rotas, models, policies, jobs |
+| `exec-dados` | modelo principal | migrations, Eloquent, SQL, índices |
+| `exec-frontend` | modelo principal | Livewire, Blade, JS, CSS |
 | `run_tests` | MCP determinístico (Python stdlib) | rodar testes e devolver saída literal |
 | `kb` / `trail` | MCP | busca por trechos e grafo de símbolos |
+| `decisao` | MCP + `d3:2b` | triagem local (`orq_decidir`): só docs? qual área? escala ou não |
+
+Os cinco agentes em **modelo principal** são o orquestrador e os quatro executores de
+código (`executor`, `exec-backend`, `exec-dados`, `exec-frontend`). O resto roda local:
+a decisão de manter código neles está em [`docs/DISTRIBUICAO.md`](docs/DISTRIBUICAO.md).
 
 **Modelos de decisão** (`d3`, `tev1`) não geram texto e usam `/v1/systemone`. O `/test` detecta a
 capacidade `decision` e cai na trilha E (`scripts/testar-decisor.sh`), que mede **acerto em casos
@@ -128,9 +143,10 @@ Opções:
    `qwen3.5:4b` pensa e trava a sessão.
 4. Garante os modelos derivados no Ollama, pulando os que já existem:
    ```
-   qwen3.5-4b-16k  FROM qwen3.5:4b          PARAMETER num_ctx 16384
-   qwen3.5-2b-16k  FROM qwen3.5:2b          PARAMETER num_ctx 16384
-   qwen-coder-8k   FROM qwen2.5-coder:1.5b  PARAMETER num_ctx 8192
+   qwen3.5-4b-16k  FROM qwen3.5:4b     PARAMETER num_ctx 16384
+   qwen3.5-2b-16k  FROM qwen3.5:2b     PARAMETER num_ctx 16384
+   qwen3.5-08b-8k  FROM qwen3.5:0.8b   PARAMETER num_ctx 8192
+   gemma4-e4b-16k  FROM gemma4:e4b     PARAMETER num_ctx 16384
    ```
 5. Confere os pré-requisitos (`opencode`, `ollama`, `node`) e imprime os próximos passos.
 
@@ -187,12 +203,12 @@ O script confere:
 
 1. `opencode` e `ollama` disponíveis e suas versões.
 2. `opencode.json` é JSON válido e está no caminho global correto.
-3. `qwen3.5-4b-16k`, `qwen3.5-2b-16k` e `qwen-coder-8k` existem no Ollama e carregam
-   com `num_ctx` 16384/16384/8192.
+3. `qwen3.5-4b-16k`, `qwen3.5-2b-16k`, `qwen3.5-08b-8k` e `gemma4-e4b-16k` existem no Ollama
+   e carregam com `num_ctx` 16384/16384/8192/16384.
 4. O plugin `plugins/ollama-nothink.ts` está presente.
 5. `opencode debug agents` mostra os agentes e as permissões efetivas
    (`execute: deny` no `local-helper`); `run_tests` responde a comandos permitidos e
-   bloqueados; `kb` e `trail` aparecem conectados em `opencode mcp list`.
+   bloqueados; `kb`, `trail` e `decisao` aparecem conectados em `opencode mcp list`.
 
 Teste manual de ponta a ponta (custa tempo, não custa dinheiro):
 
@@ -269,6 +285,8 @@ orquestrador/
 ├── docs/
 │   ├── AMBIENTE.md              # setup exato onde foi validado
 │   ├── ARQUITETURA.md           # decisões, permissões e evidências
+│   ├── BENCH-OMNI.md            # benchmark multimodal (texto, imagem, áudio, fala)
+│   ├── DISTRIBUICAO.md          # o que roda local, o que fica no modelo pago e por quê
 │   └── TROUBLESHOOTING.md       # armadilhas conhecidas
 └── .gitignore
 ```
@@ -282,8 +300,9 @@ orquestrador/
 | Agente local não chama ferramenta | modelo sem suporte a `tool_calls` | usar `qwen3.5-4b-16k` (ver TROUBLESHOOTING) |
 | Modelo local pensa e trava | OpenCode 2.1.3 ignora `body` de provider/modelo | plugin `ollama-nothink.ts` (já instalado) |
 | Contexto sempre 4096 | `num_ctx` via config de provider é ignorado | modelo derivado com `PARAMETER num_ctx` |
-| `exec-docs` 4B edita mas não retorna | o 4B entra em loop/lentidão após a edição | `exec-docs` usa o modelo principal; o 4B fica para leitura/planejamento/revisão |
+| `exec-docs` 4B edita mas não retorna | o 4B antigo entra em loop após a edição | `exec-docs` usa `gemma4-e4b-16k`; verificação fica no orquestrador |
 | Sessão nova cai em modelo pago | `OPENCODE_CONFIG_CONTENT` antiga no serviço | limpar a variável e reiniciar |
 | `opencode run --agent X` usa modelo errado | bug/limitação v2.1.3 | passar `--model` explícito |
+| `lfm3-omni` / `lfm3-audio` não instalam | `nvfp4` exige runtime MLX; 0.40.12 só Apple Silicon | aguardar suporte a Linux/Windows (ver BENCH-OMNI) |
 
 Detalhes e comandos de diagnóstico em [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md).

@@ -7,9 +7,10 @@
     Copia opencode/opencode.json e opencode/plugins/ollama-nothink.ts para
     %USERPROFILE%\.config\opencode, com backup do arquivo atual, e garante os
     modelos derivados do Ollama usados pelos subagentes:
-      qwen3.5-4b-16k = qwen3.5:4b + num_ctx 16384
-      qwen3.5-2b-16k = qwen3.5:2b + num_ctx 16384
-      qwen-coder-8k  = qwen2.5-coder:1.5b + num_ctx 8192
+      qwen3.5-4b-16k  = qwen3.5:4b + num_ctx 16384   (decompositor, local-helper)
+      qwen3.5-2b-16k  = qwen3.5:2b + num_ctx 16384   (revisor)
+      qwen3.5-08b-8k  = qwen3.5:0.8b + num_ctx 8192  (local-mini)
+      gemma4-e4b-16k  = gemma4:e4b + num_ctx 16384   (exec-local, exec-docs)
 
 .PARAMETER BaseModel
     Modelo base do Ollama usado no qwen3.5-4b-16k. Padrão: qwen3.5:4b
@@ -45,7 +46,8 @@ try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }
 $Models = @(
     @{ Name = "qwen3.5-4b-16k"; Base = $BaseModel; Context = $Context },
     @{ Name = "qwen3.5-2b-16k"; Base = "qwen3.5:2b"; Context = 16384 },
-    @{ Name = "qwen-coder-8k";  Base = "qwen2.5-coder:1.5b"; Context = 8192 }
+    @{ Name = "qwen3.5-08b-8k"; Base = "qwen3.5:0.8b"; Context = 8192 },
+    @{ Name = "gemma4-e4b-16k"; Base = "gemma4:e4b"; Context = 16384 }
 )
 
 function Write-Step { param($m) Write-Host ""; Write-Host "==> $m" -ForegroundColor Cyan }
@@ -148,7 +150,8 @@ $Py = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } elseif 
 if (-not $Py) { Write-Fail "python não encontrado (necessário para run_tests e kb)" }
 $servers = @(
     @{ Name = "orq-run-tests"; Script = Join-Path $RepoDir "mcp\run_tests\server.py" },
-    @{ Name = "orq-kb";        Script = Join-Path $RepoDir "mcp\kb\kb.py" }
+    @{ Name = "orq-kb";        Script = Join-Path $RepoDir "mcp\kb\kb.py" },
+    @{ Name = "orq-decisor";   Script = Join-Path $RepoDir "mcp\decisao\server.py" }
 )
 foreach ($s in $servers) {
     $launcher = Join-Path $BinDir ($s.Name + ".cmd")
@@ -167,7 +170,7 @@ if (($userPath -split ";") -notcontains $BinDir) {
 
 if ($SkipModel) {
     Write-Step "Ollama: ignorado (-SkipModel)"
-    Write-Warn2 "os subagentes esperam qwen3.5-4b-16k, qwen3.5-2b-16k e qwen-coder-8k"
+    Write-Warn2 "os subagentes esperam qwen3.5-4b-16k, qwen3.5-2b-16k, qwen3.5-08b-8k e gemma4-e4b-16k"
 } else {
     $list = (& ollama list 2>&1 | Out-String)
     $prefix = "(?m)^\s*"

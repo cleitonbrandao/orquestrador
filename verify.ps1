@@ -18,7 +18,7 @@
 [CmdletBinding()]
 param(
     [switch]$Smoke,
-    [string[]]$ExpectedModels = @("qwen3.5-4b-16k:latest", "qwen3.5-2b-16k:latest", "qwen-coder-8k:latest")
+    [string[]]$ExpectedModels = @("qwen3.5-4b-16k:latest", "qwen3.5-2b-16k:latest", "qwen3.5-08b-8k:latest", "gemma4-e4b-16k:latest")
 )
 
 $ErrorActionPreference = "Continue"

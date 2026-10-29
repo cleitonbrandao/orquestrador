@@ -31,6 +31,7 @@ banner() {
   echo
   cmd_linha "$I_FRASCO" "$P_VERDE"  "/test <modelo>"  "teste completo: velocidade, qualidade e nota"
   cmd_linha "$I_BOLT"   "$P_AMAR"   "/bench <modelo>" "só velocidade (tok/s)"
+  cmd_linha "$I_CHIP"   "$P_LARANJA" "/omni <modelo>"  "benchmark multimodal: texto, imagem, áudio, fala"
   cmd_linha "$I_TROFEU" "$P_ROSA"   "/rank"           "ranking por tok/s, com a nota ao lado"
   cmd_linha "$I_TROFEU" "$P_ROSA"   "/nota"           "ranking por nota, com o tok/s ao lado"
   cmd_linha "$I_PAINEL" "$P_CIANO"  "/list"           "testados com nota e pendentes"
@@ -67,6 +68,7 @@ ajuda() {
   cmd_linha " " "$P_VERDE"  "/test [modelo]"  "teste completo (--think, --rapido, --sem-limpeza)"
   cmd_linha " " "$P_VERDE"  "/decisao [modelo]" "modelo de decisão (d3, tev1): acerto, escalada e nota"
   cmd_linha " " "$P_AMAR"   "/bench [modelo]" "só velocidade, sem salvar (também /benchmark)"
+  cmd_linha " " "$P_LARANJA" "/omni [modelo]"  "benchmark multimodal (--only, --audio, --image, --num-predict)"
   titulo "$P_ROSA" "$I_TROFEU  Ver resultados"
   cmd_linha " " "$P_ROSA"   "/rank"           "ranking por tok/s, com barra e a nota ao lado"
   cmd_linha " " "$P_ROSA"   "/rank-decisao"    "ranking dos decisores: acerto, escalada e erro confiante"
@@ -141,6 +143,9 @@ while true; do
     /bench|/benchmark|/b)
       preparar "${args[@]}"; sem_flag_limpeza "${args[@]}"
       "$TESTAR" --velocidade "${ARGS[@]}" ;;
+    /omni|/multimodal)
+      preparar "${args[@]}"; sem_flag_limpeza "${args[@]}"
+      "$RAIZ/scripts/bench-omni.sh" "${ARGS[@]}" ;;
     /rank|/r)   python3 -I "$RELATORIO" rank ;;
     /rank-decisao|/decisoes) python3 -I "$RELATORIO" decisao ;;
     /nota|/n)   python3 -I "$RELATORIO" nota ;;
