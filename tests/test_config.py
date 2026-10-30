@@ -78,6 +78,13 @@ class ConfigTest(unittest.TestCase):
         self.assertIn("LEITURA (regra de custo)", sistema)
         self.assertIn("local-helper", sistema)
 
+    def test_orquestrador_usa_o_contexto_mcp_antes_de_ler(self):
+        sistema = self.agentes["orquestrador"]["system"]
+        self.assertIn("CONTEXTO (regra de custo)", sistema)
+        self.assertIn("context_build", sistema)
+        self.assertIn("context_get_rules", sistema)
+        self.assertIn("confirmed: false", sistema)
+
     def test_integrar_confere_o_diff(self):
         self.assertIn("nenhum arquivo fora das listas", self.agentes["orquestrador"]["system"])
 

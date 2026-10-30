@@ -343,6 +343,12 @@ python scripts/contexto_local.py --pergunta "..." --raiz . --pacote contexto.jso
 Tudo somente leitura: nada é escrito no projeto e o conteúdo lido é tratado como dado.
 Cada `context_build` registra uma linha em `~/.local/state/orquestrador/contexto/metrics.jsonl`.
 
+O prompt do **orquestrador** tem a regra `CONTEXTO (regra de custo)`: antes de ler
+arquivos para entender uma área, chamar `context_build`; usar a memória por
+`context_get_rules`/`context_get_decisions`; e tratar `confirmed: false` como
+pendência, nunca como fato. A regra não se aplica a um arquivo único e trecho
+pontual — aí continua `local-helper`/`local-mini`.
+
 O manifesto mostra o custo real medido pelo Ollama:
 
 ```

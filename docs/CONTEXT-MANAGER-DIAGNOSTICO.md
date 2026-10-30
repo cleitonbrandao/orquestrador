@@ -106,7 +106,10 @@ pedem já está no repositório:
 
 1. **§3.2 é o gargalo real.** Uma ferramenta MCP não remove o histórico já enviado. O
    ganho só aparece se o orquestrador **chamar** o Context Manager em vez de ler os
-   arquivos — depende do prompt de roteamento, como já ocorre na regra `LEITURA`.
+   arquivos. **Feito em 2026-10-30:** o prompt do orquestrador tem a regra
+   `CONTEXTO (regra de custo)` apontando para `context_build` e para a memória
+   (`context_get_rules`/`context_get_decisions`). Falta medir a adoção em sessões
+   reais — `context_metrics` conta execuções, não adesão.
 2. **Cache é barato, entrada não.** Reduzir contexto corta as duas coisas, mas a
    economia em US$ é menor que a economia em tokens sugere (cache custa ~0,1× da
    entrada). As metas do §12 devem ser lidas como tokens, não como dinheiro.
