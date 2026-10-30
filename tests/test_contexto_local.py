@@ -223,6 +223,36 @@ class PrincipalTest(unittest.TestCase):
         self.assertEqual(dados["entrada_tokens"], 10)
         self.assertEqual(dados["saida_tokens"], 2)
 
+    def test_pacote_e_gravado_validado_contra_a_raiz(self):
+        falso = {"texto": "alfa em `a.txt:1`", "entrada": 10, "saida": 5, "duracao": 0.5}
+        destino = self.dir / "pacote.json"
+        with mock.patch.object(cl, "resumir", return_value=falso):
+            codigo, saida, _ = self.rodar(
+                "--pergunta", "q", "--raiz", str(self.dir), "--saida", str(self.saida),
+                "--pacote", str(destino), str(self.arquivo),
+            )
+        self.assertEqual(codigo, 0)
+        pacote = json.loads(destino.read_text(encoding="utf-8"))
+        self.assertEqual(pacote["task"], "q")
+        self.assertTrue(pacote["relevant_files"][0]["confirmed"])
+        self.assertEqual(pacote["validation"]["pending"], 0)
+        self.assertEqual(pacote["context_metrics"]["original_tokens"], 3)
+        self.assertEqual(pacote["context_metrics"]["prompt_tokens"], 10)
+        self.assertIn("0 pendência(s)", saida)
+
+    def test_pacote_marca_citacao_inventada_como_pendente(self):
+        falso = {"texto": "ver `nao-existe.php:9`", "entrada": 10, "saida": 5, "duracao": 0.5}
+        destino = self.dir / "pacote.json"
+        with mock.patch.object(cl, "resumir", return_value=falso):
+            codigo, _, _ = self.rodar(
+                "--pergunta", "q", "--raiz", str(self.dir), "--saida", str(self.saida),
+                "--pacote", str(destino), str(self.arquivo),
+            )
+        self.assertEqual(codigo, 0)
+        pacote = json.loads(destino.read_text(encoding="utf-8"))
+        self.assertEqual(pacote["validation"]["pending"], 1)
+        self.assertIn("nao-existe.php:9", " ".join(pacote["missing_information"]))
+
     def test_contexto_maior_que_num_ctx_falha_antes_da_rede(self):
         grande = self.dir / "grande.txt"
         grande.write_text("x" * 400, encoding="utf-8")

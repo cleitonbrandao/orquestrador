@@ -30,6 +30,9 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+from contexto_pacote import montar as montar_pacote
+from contexto_pacote import validar as validar_pacote
+
 HOST_PADRAO = os.environ.get("ORQ_OLLAMA_HOST") or "http://localhost:11434"
 MODELO_PADRAO = os.environ.get("ORQ_CTX_MODELO") or "gemma4-e4b-16k:latest"
 MAX_LINHAS = 400
@@ -307,6 +310,10 @@ def principal(argv=None) -> int:
     p.add_argument("--sem-numeros", action="store_true",
                    help="não numera as linhas no prompt (economiza contexto, perde citação exata)")
     p.add_argument("--saida", type=Path, help="arquivo Markdown de saída")
+    p.add_argument("--pacote", type=Path,
+                   help="grava o pacote de contexto em JSON (roadmap §6) já validado")
+    p.add_argument("--raiz", type=Path, default=Path("."),
+                   help="raiz do repositório para validar os caminhos do pacote (padrão: .)")
     p.add_argument("--stdout", action="store_true", help="também imprime o resumo")
     p.add_argument("--dry-run", action="store_true", help="monta o prompt e não chama o Ollama")
     p.add_argument("--json", action="store_true", help="manifesto em JSON")
@@ -366,6 +373,26 @@ def principal(argv=None) -> int:
         if args.stdout and not args.json:
             print(markdown)
 
+        pacote = None
+        if args.pacote:
+            texto_fonte = "\n".join(t["texto"] for t in trechos if t["incluido"])
+            pacote = validar_pacote(
+                montar_pacote(pergunta, trechos, resumo, args.modelo, raiz=args.raiz),
+                raiz=args.raiz,
+                texto_fonte=texto_fonte,
+            )
+            destino = args.pacote.expanduser()
+            try:
+                destino.parent.mkdir(parents=True, exist_ok=True)
+                destino.write_text(
+                    json.dumps(pacote, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+                )
+            except OSError as exc:
+                raise ContextoError(f"não gravei {destino}: {exc}") from exc
+            if not args.json:
+                print(f"  pacote       {destino} "
+                      f"({pacote['validation']['pending']} pendência(s))")
+
         if args.json:
             print(json.dumps({
                 "pergunta": pergunta,
@@ -376,6 +403,7 @@ def principal(argv=None) -> int:
                 "reducao": reducao,
                 "duracao_s": round(resumo["duracao"], 2),
                 "saida": str(saida.resolve()),
+                **({"pacote": pacote} if pacote else {}),
             }, ensure_ascii=False, indent=2))
         else:
             imprimir_manifesto(pergunta, args.modelo, trechos, resumo, entrada,

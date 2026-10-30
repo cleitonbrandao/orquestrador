@@ -286,6 +286,22 @@ No terminal de modelos: `/ctx src/a.py app/b.php` — ele pergunta a pergunta no
 Depois, na sessão paga, peça para ler **só o Markdown** gerado (em
 `~/.local/state/orquestrador/contexto/`), não os originais.
 
+Com `--pacote contexto.json` ele grava também o pacote estruturado do Context
+Manager (`docs/CONTEXT_MANAGER_ROADMAP.md` §6): arquivos lidos com linhas e
+truncamento, referências `arquivo:linha`, métricas e as pendências. A validação é
+**determinística** — não passa pelo modelo: arquivo inexistente, caminho fora da
+raiz, `.env` e citação inventada viram `missing_information` com
+`confirmed: false`, em vez de virar fato.
+
+```powershell
+python scripts/contexto_local.py --pergunta "..." --raiz . --pacote contexto.json src/a.py
+```
+
+Atenção à base de cada número: a linha `redução` do console compara o **prompt
+enviado** com o resumo (inclui instruções); `context_metrics.reduction_percentage`
+do pacote compara os **arquivos lidos** (bytes/4) com o resumo. São medidas
+diferentes e ambas ficam registradas.
+
 O manifesto mostra o custo real medido pelo Ollama:
 
 ```
