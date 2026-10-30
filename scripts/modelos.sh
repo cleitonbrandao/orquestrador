@@ -6,6 +6,8 @@ set -u
 RAIZ="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 TESTAR="$RAIZ/scripts/testar-modelo.sh"
 RELATORIO="$RAIZ/scripts/relatorio.py"
+CUSTO="$RAIZ/scripts/custo_agentes.py"
+CTX="$RAIZ/scripts/contexto_local.py"
 HIST="${XDG_STATE_HOME:-$HOME/.local/state}/orq-modelos.history"
 CSV_ATUAL="${ORQ_RESULTADOS:-$RAIZ/docs/resultados}/resultados.csv"
 export ORQ_CLI=1   # o testar-modelo.sh não abre outro terminal por cima deste
@@ -37,6 +39,8 @@ banner() {
   cmd_linha "$I_PAINEL" "$P_CIANO"  "/list"           "testados com nota e pendentes"
   cmd_linha "$I_PAINEL" "$P_CIANO"  "/report"         "relatório visual (HTML)"
   cmd_linha "$I_TROFEU" "$P_ROSA"   "/list-fluxo-ia"  "melhores duplas gerador + revisor"
+  cmd_linha "$I_RELOGIO" "$P_ROSA"  "/custo"          "uso local vs pago por dia"
+  cmd_linha "$I_FRASCO" "$P_VERDE"  "/ctx [arquivos]" "resume contexto local antes da sessão paga"
   cmd_linha "$I_ENGR"   "$P_LARANJA" "/clean"         "libera RAM antes de testar"
   cmd_linha "$I_CODIGO" "$P_AZUL"   "/help  /quit"    "todos os comandos · sair"
   echo
@@ -77,6 +81,8 @@ ajuda() {
   cmd_linha " " "$P_CIANO"  "/ver <modelo>"   "histórico completo de um modelo"
   cmd_linha " " "$P_CIANO"  "/report"         "gera docs/resultados/relatorio.html e abre no navegador"
   cmd_linha " " "$P_ROSA"   "/list-fluxo-ia"  "lista as melhores duplas gerador + revisor para o fluxo"
+  cmd_linha " " "$P_ROSA"   "/custo [--dias N]" "uso local vs pago por dia, com gráfico e economia"
+  cmd_linha " " "$P_VERDE"  "/ctx [arquivos]"  "resume arquivos no modelo local e grava um Markdown para o pago ler"
   titulo "$P_LARANJA" "$I_ENGR  Máquina"
   cmd_linha " " "$P_LARANJA" "/clean"         "libera RAM: Ollama, Docker, apps, cache e swap (pergunta antes)"
   cmd_linha " " "$P_LARANJA" "/restore"       "religa os containers que a limpeza parou (também ao sair)"
@@ -86,7 +92,7 @@ ajuda() {
   titulo "$P_AZUL" "$I_CODIGO  Geral"
   cmd_linha " " "$P_AZUL"   "/help"           "esta lista"
   cmd_linha " " "$P_AZUL"   "/quit"           "sair (ou Ctrl-D); Ctrl-C interrompe o comando em andamento"
-  printf '\n  %sAtalhos: /t /b /r /n /l /v /c /h /q. A limpeza roda uma vez por sessão, antes do primeiro\n  /test ou /bench. NO_COLOR=1 desliga cores; ORQ_ICONS=unicode|ascii troca os ícones.%s\n' "$(dim)" "$(rs)"
+  printf '\n  %sAtalhos: /t /b /r /n /l /v /c /u /h /q. A limpeza roda uma vez por sessão, antes do primeiro\n  /test ou /bench. NO_COLOR=1 desliga cores; ORQ_ICONS=unicode|ascii troca os ícones.%s\n' "$(dim)" "$(rs)"
 }
 
 # alvo_de <args...>: primeiro argumento que não é opção (o modelo), se houver.
@@ -153,6 +159,8 @@ while true; do
     /ver|/v)    python3 -I "$RELATORIO" ver "${args[@]}" ;;
     /report)    python3 -I "$RELATORIO" html --instalados "$(instalados)" --abrir ;;
     /list-fluxo-ia | /fluxo) python3 "$RAIZ/scripts/fluxo_ia.py" ;;
+    /custo|/uso|/economia|/u) python3 -I "$CUSTO" --todos --economia --grafico "${args[@]}" ;;
+    /ctx|/contexto) python3 -I "$CTX" "${args[@]}" ;;
     /clean|/c)  limpar "$(alvo_de "${args[@]}")"; LIMPO=1 ;;
     /restore)   restaurar ;;
     /ram)       estado ;;

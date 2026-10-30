@@ -32,8 +32,9 @@ function Warn2 { param($m) Write-Host "  !   $m" -ForegroundColor Yellow; $scrip
 function Bad   { param($m) Write-Host "  x   $m" -ForegroundColor Red; $script:Failures++ }
 
 Step "Binários"
+$OpenCode = if (Get-Command opencode2 -ErrorAction SilentlyContinue) { "opencode2" } else { "opencode" }
 $bins = @{}
-foreach ($cmd in @("opencode", "ollama", "node")) {
+foreach ($cmd in @($OpenCode, "ollama", "node")) {
     if (Get-Command $cmd -ErrorAction SilentlyContinue) {
         $ver = (& $cmd --version 2>&1 | Select-Object -First 1) -join ""
         $bins[$cmd] = $ver
@@ -109,13 +110,13 @@ if ($bins.ContainsKey("ollama")) {
 }
 
 Step "Agentes e permissões efetivas"
-if ($bins.ContainsKey("opencode")) {
+if ($bins.ContainsKey($OpenCode)) {
     # "debug agents" pode devolver [] por alguns instantes enquanto o serviço
     # recarrega a configuração — vale tentar mais de uma vez antes de acusar erro.
     $raw = ""
     $agents = $null
     for ($attempt = 1; $attempt -le 3; $attempt++) {
-        $raw = (& opencode debug agents 2>&1 | Out-String)
+        $raw = (& $OpenCode debug agents 2>&1 | Out-String)
         $agents = $null
         try {
             $start = $raw.IndexOf("[")
@@ -187,8 +188,8 @@ if (-not $kb) {
         if ((ollama list 2>$null) -match '^nomic-embed-text') { Ok "nomic-embed-text instalado (busca semântica)" }
         else { Warn2 "nomic-embed-text ausente: a busca do kb fica só em BM25 (ollama pull nomic-embed-text)" }
     }
-    if (Get-Command opencode -ErrorAction SilentlyContinue) {
-        $mcpOut = (opencode mcp list 2>&1 | Out-String) -replace '\x1b\[[0-9;]*m',''
+    if (Get-Command $OpenCode -ErrorAction SilentlyContinue) {
+        $mcpOut = (& $OpenCode mcp list 2>&1 | Out-String) -replace '\x1b\[[0-9;]*m',''
         if ($mcpOut -match 'kb\s+connected|✓ kb') { Ok "OpenCode: MCP kb conectado" } else { Bad "OpenCode: MCP kb não conectado (confira mcp.kb em opencode.json)" }
     }
     foreach ($linha in (& orq-kb apps 2>$null)) {

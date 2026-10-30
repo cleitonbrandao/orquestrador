@@ -54,18 +54,20 @@ function Set-Icones {
         $script:ICO = @{
             Chip = & $c 0xF2DB; Bolt = & $c 0xF0E7; Trofeu = & $c 0xF091; Check = & $c 0xF00C; Xis = & $c 0xF00D
             Frasco = & $c 0xF0C3; Docker = & $c 0xF308; Codigo = & $c 0xF121; Engr = & $c 0xF085; Painel = & $c 0xF0E4
+            Relogio = & $c 0xF017
         }
     } elseif ($modo -eq "unicode") {
         $script:S_CAP_E = [string][char]0x2590; $script:S_SEP = [string][char]0x258C; $script:S_CAP_D = [string][char]0x258C
         $script:ICO = @{
             Chip = [string][char]0x25A3; Bolt = [string][char]0x25B2; Trofeu = [string][char]0x2605; Check = [string][char]0x2714; Xis = [string][char]0x2718
             Frasco = [string][char]0x25C6; Docker = [string][char]0x25A4; Codigo = "<>"; Engr = [string][char]0x25C8; Painel = [string][char]0x25A6
+            Relogio = [string][char]0x25F7
         }
     } else {
         $script:S_CAP_E = "["; $script:S_SEP = ""; $script:S_CAP_D = "]"
         $script:ICO = @{
             Chip = "#"; Bolt = "^"; Trofeu = "*"; Check = "+"; Xis = "x"
-            Frasco = "*"; Docker = "d"; Codigo = "c"; Engr = "o"; Painel = "="
+            Frasco = "*"; Docker = "d"; Codigo = "c"; Engr = "o"; Painel = "="; Relogio = "t"
         }
     }
 }

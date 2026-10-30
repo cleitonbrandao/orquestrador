@@ -18,6 +18,8 @@ $TESTAR = Join-Path $PSScriptRoot "testar-modelo.ps1"
 $PODAR = Join-Path $PSScriptRoot "podar-modelos.ps1"
 $LIMPARTESTES = Join-Path $PSScriptRoot "limpar-testes.ps1"
 $RELATORIO = Join-Path $PSScriptRoot "relatorio.py"
+$CUSTO = Join-Path $PSScriptRoot "custo_agentes.py"
+$CTX = Join-Path $PSScriptRoot "contexto_local.py"
 $DIR_RESULTADOS = if ($env:ORQ_RESULTADOS) { $env:ORQ_RESULTADOS } else { Join-Path $RAIZ "docs\resultados" }
 $CSV_ATUAL = Join-Path $DIR_RESULTADOS "resultados.csv"
 $env:ORQ_CLI = "1"   # o testar-modelo.ps1 não abre outro terminal por cima deste
@@ -46,7 +48,9 @@ function Banner {
     CmdLinha $ICO.Trofeu $PAL.Rosa "/rank" "ranking por tok/s, com a nota ao lado"
     CmdLinha $ICO.Trofeu $PAL.Rosa "/nota" "ranking por nota, com o tok/s ao lado"
     CmdLinha $ICO.Painel $PAL.Ciano "/list" "testados com nota e pendentes"
-    CmdLinha $ICO.Trofeu $PAL.Rosa   "/list-fluxo-ia" "melhores duplas gerador + revisor"
+    CmdLinha $ICO.Trofeu $PAL.Rosa   "/list-fluxo-ia" "melhores duplas gerador + revisor"
+    CmdLinha $ICO.Relogio $PAL.Rosa "/custo" "uso local vs pago por dia"
+    CmdLinha $ICO.Frasco $PAL.Verde "/ctx [arquivos]" "resume contexto local antes da sessão paga"
     CmdLinha $ICO.Painel $PAL.Ciano "/report" "relatório visual (HTML)"
     CmdLinha $ICO.Engr $PAL.Laranja "/clean" "libera RAM antes de testar"
     CmdLinha $ICO.Codigo $PAL.Azul "/help  /quit" "todos os comandos · sair"
@@ -89,7 +93,9 @@ function Ajuda {
     CmdLinha " " $PAL.Rosa "/nota" "ranking por nota, com tok/s, A-D e etapas em que serve"
     CmdLinha " " $PAL.Ciano "/list" "testados (com a nota) e instalados ainda sem teste"
     CmdLinha " " $PAL.Ciano "/ver <modelo>" "histórico completo de um modelo"
-    CmdLinha " " $PAL.Rosa   "/list-fluxo-ia" "lista as melhores duplas gerador + revisor"
+    CmdLinha " " $PAL.Rosa   "/list-fluxo-ia" "lista as melhores duplas gerador + revisor"
+    CmdLinha " " $PAL.Rosa   "/custo [--dias N]" "uso local vs pago por dia, com gráfico e economia"
+    CmdLinha " " $PAL.Verde  "/ctx [arquivos]" "resume arquivos no modelo local e grava um Markdown para o pago ler"
     CmdLinha " " $PAL.Ciano "/report" "gera docs\resultados\relatorio.html e abre no navegador"
     Titulo $PAL.Laranja "$($ICO.Engr)  Máquina"
     CmdLinha " " $PAL.Laranja "/clean" "libera RAM: Ollama, Docker e apps (pergunta antes)"
@@ -101,7 +107,7 @@ function Ajuda {
     CmdLinha " " $PAL.Azul "/help" "esta lista"
     CmdLinha " " $PAL.Azul "/quit" "sair (ou Ctrl+Z e Enter); Ctrl+C encerra o terminal"
     Write-Host ""
-    Write-Host ("  " + (Dim) + "Atalhos: /t /b /r /n /l /v /c /h /q. A limpeza roda uma vez por sessão, antes do primeiro")
+    Write-Host ("  " + (Dim) + "Atalhos: /t /b /r /n /l /v /c /u /h /q. A limpeza roda uma vez por sessão, antes do primeiro")
     Write-Host ("  /test ou /bench. Ao sair (inclusive com Ctrl+C) os containers parados são religados." + (Rs))
 }
 
@@ -220,7 +226,9 @@ try {
                 '^/(nota|n)$' { Invoke-Py $RELATORIO nota; break }
                 '^/(list|l)$' { Invoke-Py $RELATORIO lista --instalados (Instalados); break }
                 '^/(ver|v)$' { Invoke-Py $RELATORIO ver @resto; break }
-                '^/(list-fluxo-ia|fluxo)$' { Invoke-Py "$RAIZ\scripts\fluxo_ia.py"; break }
+                '^/(list-fluxo-ia|fluxo)$' { Invoke-Py "$RAIZ\scripts\fluxo_ia.py"; break }
+                '^/(custo|uso|economia|u)$' { Invoke-Py $CUSTO --todos --economia --grafico @resto; break }
+                '^/(ctx|contexto)$' { Invoke-Py $CTX @resto; break }
                 '^/report$' { Invoke-Py $RELATORIO html --instalados (Instalados) --abrir; break }
                 '^/(clean|c)$' { Limpar (Alvo-De $resto); $script:LIMPO = $true; break }
                 '^/restore$' { $null = Restaurar; break }

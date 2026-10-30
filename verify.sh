@@ -23,7 +23,11 @@ warn()  { printf '  \033[33m!\033[0m   %s\n' "$1"; WARNINGS=$((WARNINGS+1)); }
 bad()   { printf '  \033[31mx\033[0m   %s\n' "$1" >&2; FAILURES=$((FAILURES+1)); }
 
 step "Binários"
-for cmd in opencode ollama node; do
+OPENCODE=""
+for cand in opencode2 opencode; do
+  if command -v "$cand" >/dev/null 2>&1; then OPENCODE="$cand"; break; fi
+done
+for cmd in "${OPENCODE:-opencode}" ollama node; do
   if command -v "$cmd" >/dev/null 2>&1; then
     ok "$cmd: $("$cmd" --version 2>&1 | head -n 1)"
   elif [ "$cmd" = "node" ]; then
@@ -123,8 +127,8 @@ if command -v ollama >/dev/null 2>&1; then
 fi
 
 step "Agentes e permissões efetivas"
-if command -v opencode >/dev/null 2>&1; then
-  raw="$(opencode debug agents 2>&1 || true)"
+if [ -n "$OPENCODE" ]; then
+  raw="$("$OPENCODE" debug agents 2>&1 || true)"
   if [ -n "${JSON_TOOL:-}" ]; then
     if [ "$JSON_TOOL" = "node" ]; then
       printf '%s' "$raw" | node -e '
@@ -207,6 +211,26 @@ else
   rt_call "git --version; rm -rf x" | grep -q '"verdict": "bloqueado"' && ok "encadeamento com ; -> bloqueado" || bad "run_tests aceitou metacaracteres"
 fi
 
+step "Servidor MCP decisao"
+DC="$(command -v orq-decisor || true)"
+if [ -z "$DC" ]; then
+  bad "orq-decisor não está no PATH (rode ./install.sh)"
+elif [ ! -x "$DC" ]; then
+  bad "orq-decisor sem permissão de execução (chmod +x mcp/decisao/server.py)"
+else
+  ok "launcher: $DC"
+  resp="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"verify","version":"1"}}}' | timeout 20 "$DC" 2>&1 | head -n 1)"
+  if printf '%s' "$resp" | grep -q '"serverInfo"'; then
+    ok "initialize respondeu (stdio ok)"
+  else
+    bad "initialize não respondeu: $(printf '%s' "$resp" | cut -c1-120)"
+  fi
+  if command -v ollama >/dev/null 2>&1; then
+    if ollama list 2>/dev/null | grep -q '^d3:2b'; then ok "modelo d3:2b presente"
+    else warn "d3:2b ausente: o decisor não consegue decidir (ollama pull d3:2b)"; fi
+  fi
+fi
+
 step "Base de conhecimento (kb e embeddings)"
 KB="$(command -v orq-kb || true)"
 if [ -z "$KB" ]; then
@@ -218,8 +242,8 @@ else
   else
     warn "nomic-embed-text ausente: a busca do kb fica só em BM25 (ollama pull nomic-embed-text)"
   fi
-  if command -v opencode >/dev/null 2>&1; then
-    mcp_out="$(timeout 60 opencode mcp list 2>&1 | sed 's/\x1b\[[0-9;]*m//g' || true)"
+  if [ -n "$OPENCODE" ]; then
+    mcp_out="$(timeout 60 "$OPENCODE" mcp list 2>&1 | sed 's/\x1b\[[0-9;]*m//g' || true)"
     if printf '%s' "$mcp_out" | grep -Eq '✓ kb .*connected|kb +connected'; then ok "OpenCode: MCP kb conectado"
     else bad "OpenCode: MCP kb não conectado (confira mcp.kb em opencode.json)"; fi
   fi
