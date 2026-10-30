@@ -270,79 +270,6 @@
         "reasoning_effort": "none"
       },
       "models": {
-        "qwen3.5-4b-16k:latest": {
-          "name": "Qwen3.5 4B · 16k (decompositor/local-helper)",
-          "limit": {
-            "context": 16384,
-            "output": 4096
-          },
-          "body": {
-            "reasoning_effort": "none"
-          },
-          "capabilities": {
-            "reasoning": false
-          },
-          "variants": {
-            "nothink": {
-              "body": {
-                "reasoning_effort": "none"
-              }
-            }
-          }
-        },
-        "qwen3.5-2b-16k:latest": {
-          "name": "Qwen3.5 2B · 16k (revisor)",
-          "limit": {
-            "context": 16384,
-            "output": 512
-          },
-          "body": {
-            "reasoning_effort": "none"
-          },
-          "capabilities": {
-            "reasoning": false
-          },
-          "variants": {
-            "nothink": {
-              "body": {
-                "reasoning_effort": "none"
-              }
-            }
-          }
-        },
-        "qwen3.5-08b-8k:latest": {
-          "name": "Qwen3.5 0.8B · 8k (local-mini)",
-          "limit": {
-            "context": 8192,
-            "output": 2048
-          },
-          "body": {
-            "reasoning_effort": "none"
-          },
-          "capabilities": {
-            "reasoning": false
-          }
-        },
-        "gemma4-e4b-16k:latest": {
-          "name": "Gemma 4 e4b · 16k (exec-local/exec-docs)",
-          "limit": {
-            "context": 16384,
-            "output": 4096
-          },
-          "body": {
-            "reasoning_effort": "none"
-          },
-          "capabilities": {
-            "reasoning": false
-          },
-          "variants": {
-            "nothink": {
-              "body": {
-                "reasoning_effort": "none"
-              }
-            }
-          }
-        },
         "qwen3.5-2b-32k:latest": {
           "name": "Qwen3.5 2B · 32k (decompositor/revisor)",
           "limit": {
@@ -381,6 +308,19 @@
                 "reasoning_effort": "none"
               }
             }
+          }
+        },
+        "qwen3.5-08b-32k:latest": {
+          "name": "Qwen3.5 0.8B · 32k (local-mini)",
+          "limit": {
+            "context": 32768,
+            "output": 2048
+          },
+          "body": {
+            "reasoning_effort": "none"
+          },
+          "capabilities": {
+            "reasoning": false
           }
         }
       }
@@ -1288,7 +1228,7 @@
     },
     "local-mini": {
       "mode": "subagent",
-      "model": "ollama/qwen3.5-08b-8k:latest",
+      "model": "ollama/qwen3.5-08b-32k:latest",
       "description": "Agente local mínimo (Qwen3.5 0.8B · 8k) para ler um único trecho/arquivo curto, responder dúvidas pontuais e sugerir um teste. Não altera arquivos.",
       "system": "Você responde apenas sobre o trecho de código fornecido ou sobre um único arquivo citado. Use read no máximo uma vez e somente no arquivo indicado. Responda em português, em no máximo 5 linhas: o que o trecho faz, riscos evidentes e uma sugestão de teste. Nunca invente conteúdo: se o read falhar ou o arquivo não existir, diga exatamente isso e pare. Não altere arquivos, não execute comandos, não use outras ferramentas e não chame subagentes. Se a tarefa precisar de mais de um arquivo ou de raciocínio amplo, responda que o local-helper ou o orquestrador deve assumir.",
       "permissions": [

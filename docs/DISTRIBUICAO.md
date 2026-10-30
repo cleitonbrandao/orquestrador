@@ -11,7 +11,7 @@ em [`MODELOS-TESTADOS.md`](MODELOS-TESTADOS.md) e [`PROMPT-TESTE.md`](PROMPT-TES
 | `orquestrador` | **pago** | triagem, arquitetura, integração entre arquivos, veredito final |
 | `decompositor` | local `qwen3.5-2b-32k` | quebrar o pedido em tarefas |
 | `local-helper` | local `gemma4-e2b-32k` | ler e explicar código |
-| `local-mini` | local `qwen3.5-08b-8k` | ler um trecho curto |
+| `local-mini` | local `qwen3.5-08b-32k` | ler um trecho curto |
 | `revisor` | local `qwen3.5-2b-32k` | revisar o diff (advisory) |
 | `exec-local` | local `gemma4-e2b-32k` | editar **um** arquivo, com teste determinístico |
 | `exec-docs` | local `gemma4-e2b-32k` | editar Markdown |

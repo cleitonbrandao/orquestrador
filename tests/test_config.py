@@ -92,7 +92,7 @@ class ConfigTest(unittest.TestCase):
         self.assertTrue(self.agentes["local-mini"]["model"].startswith("ollama/"))
 
     def test_saida_dos_modelos_locais_comporta_edicao(self):
-        for chave in ("qwen3.5-4b-16k:latest", "gemma4-e4b-16k:latest"):
+        for chave in ("qwen3.5-2b-32k:latest", "gemma4-e2b-32k:latest"):
             self.assertGreaterEqual(self.modelos[chave]["limit"]["output"], 4096,
                                     f"{chave} com output baixo trunca edição")
 

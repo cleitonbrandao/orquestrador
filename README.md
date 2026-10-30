@@ -47,7 +47,7 @@ Funciona em **Windows** e **Linux/macOS**, em qualquer repositório, sem precisa
 | `orquestrador` | primary, **sem pin** (segue `/models`) | arquitetura, mudanças complexas, integração; não lê PHP/SQL — delega |
 | `decompositor` | `ollama/qwen3.5-2b-32k:latest` | quebrar pedido em tarefas (read-only) |
 | `local-helper` | `ollama/gemma4-e2b-32k:latest` | ler/explicar código; usa `kb` e `trail` |
-| `local-mini` | `ollama/qwen3.5-08b-8k:latest` | leitura pontual de um trecho/arquivo curto |
+| `local-mini` | `ollama/qwen3.5-08b-32k:latest` | leitura pontual de um trecho/arquivo curto |
 | `revisor` | `ollama/qwen3.5-2b-32k:latest` | revisão advisory do diff, sem ferramentas |
 | `exec-local` | `ollama/gemma4-e2b-32k:latest` | edição pequena em **um** arquivo, com teste determinístico |
 | `exec-docs` | `ollama/gemma4-e2b-32k:latest` | editar Markdown; verificação fica no orquestrador |
@@ -144,10 +144,9 @@ Opções:
    `qwen3.5:4b` pensa e trava a sessão.
 4. Garante os modelos derivados no Ollama, pulando os que já existem:
    ```
-   qwen3.5-4b-16k  FROM qwen3.5:4b     PARAMETER num_ctx 16384
-   qwen3.5-2b-16k  FROM qwen3.5:2b     PARAMETER num_ctx 16384
-   qwen3.5-08b-8k  FROM qwen3.5:0.8b   PARAMETER num_ctx 8192
-   gemma4-e4b-16k  FROM gemma4:e4b     PARAMETER num_ctx 16384
+   qwen3.5-2b-32k   FROM qwen3.5:2b    PARAMETER num_ctx 32768
+   gemma4-e2b-32k   FROM gemma4:e2b    PARAMETER num_ctx 32768
+   qwen3.5-08b-32k  FROM qwen3.5:0.8b  PARAMETER num_ctx 32768
    ```
 5. Confere os pré-requisitos (`opencode`, `ollama`, `node`) e imprime os próximos passos.
 
@@ -204,8 +203,8 @@ O script confere:
 
 1. `opencode` e `ollama` disponíveis e suas versões.
 2. `opencode.json` é JSON válido e está no caminho global correto.
-3. `qwen3.5-4b-16k`, `qwen3.5-2b-16k`, `qwen3.5-08b-8k` e `gemma4-e4b-16k` existem no Ollama
-   e carregam com `num_ctx` 16384/16384/8192/16384.
+3. `qwen3.5-2b-32k`, `gemma4-e2b-32k` e `qwen3.5-08b-32k` existem no Ollama e
+   carregam com `num_ctx` 32768 (abaixo disso a auto-compactação degenera).
 4. O plugin `plugins/ollama-nothink.ts` está presente.
 5. `opencode debug agents` mostra os agentes e as permissões efetivas
    (`execute: deny` no `local-helper`); `run_tests` responde a comandos permitidos e

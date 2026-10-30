@@ -7,16 +7,19 @@
     Copia opencode/opencode.json e opencode/plugins/ollama-nothink.ts para
     %USERPROFILE%\.config\opencode, com backup do arquivo atual, e garante os
     modelos derivados do Ollama usados pelos subagentes:
-      qwen3.5-4b-16k  = qwen3.5:4b + num_ctx 16384   (decompositor, local-helper)
-      qwen3.5-2b-16k  = qwen3.5:2b + num_ctx 16384   (revisor)
-      qwen3.5-08b-8k  = qwen3.5:0.8b + num_ctx 8192  (local-mini)
-      gemma4-e4b-16k  = gemma4:e4b + num_ctx 16384   (exec-local, exec-docs)
+      qwen3.5-2b-32k   = qwen3.5:2b + num_ctx 32768   (decompositor, revisor)
+      gemma4-e2b-32k   = gemma4:e2b + num_ctx 32768   (local-helper, exec-local, exec-docs)
+      qwen3.5-08b-32k  = qwen3.5:0.8b + num_ctx 32768 (local-mini)
+
+    32k é obrigatório: o OpenCode V2 auto-compacta a cada passo com um `keep`
+    fixo de 15.000 tokens; com 16k o limiar fica abaixo disso e a compactação
+    degenera em "Nothing to compact yet". Ver docs/TROUBLESHOOTING.md.
 
 .PARAMETER BaseModel
-    Modelo base do Ollama usado no qwen3.5-4b-16k. Padrão: qwen3.5:4b
+    Modelo base do Ollama usado no qwen3.5-2b-32k. Padrão: qwen3.5:2b
 
 .PARAMETER Context
-    Valor de num_ctx do qwen3.5-4b-16k. Padrão: 16384
+    Valor de num_ctx do qwen3.5-2b-32k. Padrão: 32768
 
 .PARAMETER SkipModel
     Não mexe no Ollama (a config é instalada do mesmo jeito).
@@ -34,8 +37,8 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$BaseModel = "qwen3.5:4b",
-    [int]$Context = 16384,
+    [string]$BaseModel = "qwen3.5:2b",
+    [int]$Context = 32768,
     [switch]$SkipModel,
     [switch]$Link,
     [switch]$Force
@@ -44,10 +47,9 @@ param(
 $ErrorActionPreference = "Stop"
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }
 $Models = @(
-    @{ Name = "qwen3.5-4b-16k"; Base = $BaseModel; Context = $Context },
-    @{ Name = "qwen3.5-2b-16k"; Base = "qwen3.5:2b"; Context = 16384 },
-    @{ Name = "qwen3.5-08b-8k"; Base = "qwen3.5:0.8b"; Context = 8192 },
-    @{ Name = "gemma4-e4b-16k"; Base = "gemma4:e4b"; Context = 16384 }
+    @{ Name = "qwen3.5-2b-32k"; Base = $BaseModel; Context = $Context },
+    @{ Name = "gemma4-e2b-32k"; Base = "gemma4:e2b"; Context = 32768 },
+    @{ Name = "qwen3.5-08b-32k"; Base = "qwen3.5:0.8b"; Context = 32768 }
 )
 
 function Write-Step { param($m) Write-Host ""; Write-Host "==> $m" -ForegroundColor Cyan }
@@ -170,7 +172,7 @@ if (($userPath -split ";") -notcontains $BinDir) {
 
 if ($SkipModel) {
     Write-Step "Ollama: ignorado (-SkipModel)"
-    Write-Warn2 "os subagentes esperam qwen3.5-4b-16k, qwen3.5-2b-16k, qwen3.5-08b-8k e gemma4-e4b-16k"
+    Write-Warn2 "os subagentes esperam qwen3.5-2b-32k, gemma4-e2b-32k e qwen3.5-08b-32k"
 } else {
     $list = (& ollama list 2>&1 | Out-String)
     $prefix = "(?m)^\s*"

@@ -18,7 +18,7 @@
 [CmdletBinding()]
 param(
     [switch]$Smoke,
-    [string[]]$ExpectedModels = @("qwen3.5-4b-16k:latest", "qwen3.5-2b-16k:latest", "qwen3.5-08b-8k:latest", "gemma4-e4b-16k:latest")
+    [string[]]$ExpectedModels = @("qwen3.5-2b-32k:latest", "gemma4-e2b-32k:latest", "qwen3.5-08b-32k:latest")
 )
 
 $ErrorActionPreference = "Continue"
@@ -98,7 +98,7 @@ if ($bins.ContainsKey("ollama")) {
             $m = [regex]::Match($mf, "(?m)^PARAMETER\s+num_ctx\s+(\d+)")
             if ($m.Success) {
                 Ok "num_ctx: $($m.Groups[1].Value)"
-                if ([int]$m.Groups[1].Value -lt 8192) { Warn2 "contexto baixo para leitura de código (recomendado >= 8192)" }
+                if ([int]$m.Groups[1].Value -lt 32768) { Warn2 "contexto < 32k: a auto-compactacao do OpenCode degenera (keep fixo de 15000 tokens)" }
             } else {
                 Bad "modelo sem PARAMETER num_ctx (contexto cai para o padrão do Ollama)"
                 Write-Host "     recrie: .\install.ps1 -Force"

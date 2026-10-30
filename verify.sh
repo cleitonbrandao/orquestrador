@@ -2,7 +2,7 @@
 # Valida a instalação da orquestração do OpenCode (Linux/macOS).
 set -uo pipefail
 
-EXPECTED_MODELS=("qwen3.5-4b-16k:latest" "qwen3.5-2b-16k:latest" "qwen3.5-08b-8k:latest" "gemma4-e4b-16k:latest")
+EXPECTED_MODELS=("qwen3.5-2b-32k:latest" "gemma4-e2b-32k:latest" "qwen3.5-08b-32k:latest")
 
 for arg in "$@"; do
   case "$arg" in
@@ -115,7 +115,7 @@ if command -v ollama >/dev/null 2>&1; then
       ctx="$(printf '%s\n' "$mf" | awk '/^PARAMETER[[:space:]]+num_ctx/ {print $3; exit}')"
       if [ -n "$ctx" ]; then
         ok "num_ctx: $ctx"
-        [ "$ctx" -lt 8192 ] && warn "contexto baixo para leitura de código (recomendado >= 8192)"
+        [ "$ctx" -lt 32768 ] && warn "contexto < 32k: a auto-compactacao do OpenCode degenera (keep fixo de 15000 tokens)"
       else
         bad "modelo sem PARAMETER num_ctx (contexto cai para o padrão do Ollama)"
         echo "     recrie: ./install.sh --force"
