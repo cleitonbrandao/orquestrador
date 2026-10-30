@@ -275,3 +275,67 @@ Copy-Item "$env:USERPROFILE\.config\opencode\opencode.json.bak.20261023-120000" 
 ```
 
 Se você tem providers/agentes próprios, faça merge manual em vez de copiar por cima.
+
+---
+
+## Subagente local falha com `Nothing to compact yet`
+
+**Sintoma:** o subagente local (decompositor, local-helper, exec-local…) morre com
+`Subagent failed` e o erro `Session.StepFailedError: Nothing to compact yet`. No histórico,
+a mensagem do assistente fica vazia (`content: []`, sem `tokens`) e a sessão termina com
+`compaction.unavailable`.
+
+**Causa:** o OpenCode (V2) chama a auto-compactação **a cada passo** do runner
+(`SessionRunner.runStep`). Se a compactação falhar, o passo é abortado — não é "skip".
+Ela falha quando não sobra nenhuma mensagem com texto para resumir, o que acontece depois
+de uma primeira compactação que engoliu a conversa inteira.
+
+Isso é inevitável em modelos de contexto pequeno, porque o `keep` interno é **fixo em
+15.000 tokens** e o limiar é calculado assim:
+
+```text
+limiar = contexto - max(15% do contexto, 16000 se contexto >= 32000)
+```
+
+| contexto | limiar | `keep` | resultado |
+|---|---|---|---|
+| 8.192 | 6.963 | 15.000 | compactação sempre degenerada |
+| 16.384 | 13.927 | 15.000 | compactação sempre degenerada |
+| 32.768 | 16.768 | 15.000 | funciona |
+| 65.536 | 49.536 | 15.000 | folgado |
+
+Ou seja: **agente local precisa de contexto ≥ 32k**. Com 16k o limiar fica abaixo do `keep`
+e toda compactação resume tudo, deixando a sessão sem texto para a etapa seguinte.
+
+Agravante medido nesta máquina: o estimador de tokens do OpenCode superestima ~33% sobre
+o real (prompt de 10.481 tokens reais disparou um limiar de 13.927).
+
+**Solução:** derivar os modelos locais com `num_ctx 32768` e apontar os agentes para eles.
+
+```bash
+printf 'FROM qwen3.5:2b\nPARAMETER num_ctx 32768\n' > /tmp/Modelfile
+ollama create qwen3.5-2b-32k -f /tmp/Modelfile
+printf 'FROM gemma4:e2b\nPARAMETER num_ctx 32768\n' > /tmp/Modelfile
+ollama create gemma4-e2b-32k -f /tmp/Modelfile
+```
+
+No `opencode.json`, o limite precisa casar com o Modelfile:
+
+```json
+"qwen3.5-2b-32k:latest": {
+  "limit": { "context": 32768, "output": 4096 }
+}
+```
+
+Confirme com `ollama ps` (`CONTEXT 32768`) e valide que o modelo emite `tool_calls` nativos
+— modelo que devolve a chamada como texto não executa ferramenta nenhuma.
+
+Benchmark desta máquina (CPU, prompt real de ~8.100 tokens):
+
+| modelo | leitura | geração | parede | caminhos válidos no plano |
+|---|---:|---:|---:|---|
+| `qwen3.5-2b-32k` | 17,3 tok/s | 5,5 tok/s | 594 s | 8/8 |
+| `gemma4-e2b-32k` | 19,1 tok/s | 6,3 tok/s | 581 s | 7/11 |
+| `qwen3.5-4b-32k` | 17,0 tok/s | 3,1 tok/s | 694 s | 5/9 |
+
+O 4B é mais lento **e** menos preciso que o 2B nesta tarefa.

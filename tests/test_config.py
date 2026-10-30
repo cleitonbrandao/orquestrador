@@ -96,6 +96,23 @@ class ConfigTest(unittest.TestCase):
             self.assertGreaterEqual(self.modelos[chave]["limit"]["output"], 4096,
                                     f"{chave} com output baixo trunca edição")
 
+    def test_rota_local_exige_um_arquivo(self):
+        orq = self.agentes["orquestrador"]["system"]
+        self.assertIn("com 2+ arquivos trate como edicao", orq)
+        self.assertIn("Rejeite também rota=local com mais de um arquivo", orq)
+        self.assertIn("reclassifique para edicao", orq)
+        dec = self.agentes["decompositor"]["system"]
+        self.assertIn("exatamente UM arquivo", dec)
+        self.assertIn("com 2+ arquivos use rota=edicao", dec)
+
+    def test_locais_nao_narram_ferramenta(self):
+        # Falha real de 29/10: o exec-local descreveu o plano e não chamou read/edit.
+        for nome in ("local-helper", "exec-local"):
+            self.assertTrue(self.agentes[nome]["system"].startswith("Não"),
+                            f"{nome} deve proibir narração de ferramenta no início do prompt")
+        self.assertIn("execute read/edit/run_tests diretamente",
+                      self.agentes["exec-local"]["system"])
+
 
 if __name__ == "__main__":
     unittest.main()

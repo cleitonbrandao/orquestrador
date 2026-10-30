@@ -9,12 +9,12 @@ em [`MODELOS-TESTADOS.md`](MODELOS-TESTADOS.md) e [`PROMPT-TESTE.md`](PROMPT-TES
 | Camada | Modelo | Tarefa |
 |---|---|---|
 | `orquestrador` | **pago** | triagem, arquitetura, integração entre arquivos, veredito final |
-| `decompositor` | local `qwen3.5-4b-16k` | quebrar o pedido em tarefas |
-| `local-helper` | local `qwen3.5-4b-16k` | ler e explicar código |
+| `decompositor` | local `qwen3.5-2b-32k` | quebrar o pedido em tarefas |
+| `local-helper` | local `gemma4-e2b-32k` | ler e explicar código |
 | `local-mini` | local `qwen3.5-08b-8k` | ler um trecho curto |
-| `revisor` | local `qwen3.5-2b-16k` | revisar o diff (advisory) |
-| `exec-local` | local `gemma4-e4b-16k` | editar **um** arquivo, com teste determinístico |
-| `exec-docs` | local `gemma4-e4b-16k` | editar Markdown |
+| `revisor` | local `qwen3.5-2b-32k` | revisar o diff (advisory) |
+| `exec-local` | local `gemma4-e2b-32k` | editar **um** arquivo, com teste determinístico |
+| `exec-docs` | local `gemma4-e2b-32k` | editar Markdown |
 | `executor` / `exec-backend` / `exec-dados` / `exec-frontend` | **pago** | implementar código |
 | `orq_decidir` | local `d3:2b` | classificar antes de decidir (`/v1/systemone`) |
 
@@ -55,6 +55,11 @@ São os dois casos em que a falha é **detectável por script**, não por julgam
 `gemma4-e4b-16k` foi validado nesses dois papéis antes de entrar: emite `tool_calls` nativos
 (`read` e `edit`) pelo endpoint compatível com OpenAI, com `reasoning_effort: none`, e roda
 com `num_ctx` 16384 embutido (`ollama ps` mostra `CONTEXT 16384`).
+
+`rota=local` exige **exatamente um arquivo**: o decompositor não pode gerar `rota=local` com
+2+ arquivos e o orquestrador reclassifica para `edicao`. Era esse o caso que derrubou o
+`exec-local` em 29/10 (tarefa com `cli.py` + `test_alterdata.py`): o modelo local gastou
+4.337 tokens, narrou o plano e não editou nada.
 
 ## O que mudou e por quê
 
@@ -152,17 +157,92 @@ teste novo dá o mesmo resultado verde. Quem pega isso é o diff.
 ## Como saber se está economizando
 
 `scripts/custo_agentes.py` lê o histórico do OpenCode (`~/.local/share/opencode/storage`)
-e soma entrada, cache e saída por agente e por sessão, separando o que rodou em modelo local
-(provider `ollama`) do que rodou em modelo pago:
+e soma entrada, cache e saída por agente, por dia e por sessão, separando o que rodou em
+modelo local (provider `ollama`) do que rodou em modelo pago:
 
 ```powershell
+python scripts/custo_agentes.py                  # projeto atual: agentes + economia
+python scripts/custo_agentes.py --economia       # só economia e tendência (7 dias vs 7 anteriores)
+python scripts/custo_agentes.py --diario         # série dia a dia, com % local e US$ evitado
+python scripts/custo_agentes.py --grafico            # 7 dias até hoje, no terminal
+python scripts/custo_agentes.py --grafico --dias 60  # janela maior (só via --dias)
 python scripts/custo_agentes.py --por-sessao
 python scripts/custo_agentes.py --projetos
 python scripts/custo_agentes.py --desde 2026-10-01 --json > custo.json
 ```
 
-O número que importa é a **razão entrada/saída**. Medição em projeto real desta máquina
-(`emprestapro`, 6 sessões, 1.396 mensagens):
+No terminal de modelos, `/custo` (atalhos `/uso`, `/u`) roda
+`--todos --economia --grafico`: histórico **global** de uso local contra pago, com o gráfico
+dos **últimos 7 dias até hoje** e a quebra por modelo local. Para ampliar a janela, passe o
+parâmetro: `/custo --dias 60`; `--precos` vale aqui também (`/custo --precos precos.json`).
+
+O que entra nessa conta é o uso **real** — as sessões do OpenCode, onde os subagentes locais
+rodam. Os `/test`/`/bench` do terminal de modelos não são uso: eles medem tok/s e qualidade e
+aparecem em `/rank`, `/nota` e `/report`.
+
+### O que o relatório mede
+
+- **contexto pago por sessão** — o número que decide a conta. Sessão longa reenvia o
+  contexto acumulado a cada turno; é isso que domina o custo, não a edição.
+- **% local** — quanto do contexto processado passou pelo Ollama. É o espaço de manobra.
+- **custo evitado** — os tokens locais precificados como se tivessem rodado no modelo pago
+  de referência. Só aparece com `--precos`; sem ele o relatório não inventa dólar. Com preços,
+  a coluna `EVITADO` do quadro por agente mostra **qual subagente local** rendeu a economia.
+- **gráfico por dia** (`--grafico`) — barras de contexto local e pago com **escala própria por
+  série**: o local continua visível mesmo sendo 1% do volume. A janela termina **hoje** e tem
+  **7 dias** por padrão; mais tempo só com `--dias N` (`/custo --dias 60`). Dias sem atividade
+  aparecem zerados.
+
+Como o `cost` gravado pelo OpenCode é 0 em boa parte dos provedores (assinatura/copilot),
+o valor em US$ é uma **estimativa** que vem de uma tabela mantida por você (valores de
+exemplo — confira os preços atuais no provedor):
+
+```json
+{
+  "referencia": "gemini-2.5-flash",
+  "modelos": {
+    "gemini-2.5-flash": {
+      "input": 0.30,
+      "cache_read": 0.03,
+      "cache_write": 0.30,
+      "output": 2.50
+    }
+  }
+}
+```
+
+Preços em **US$ por 1M de tokens**. `referencia` escolhe qual modelo precifica o que rodou no
+local; com mais de um modelo no arquivo, o campo é obrigatório. Schema inválido sai com a
+mensagem do campo, não com traceback.
+
+### A/B de configurações
+
+O laço que responde "esta estrutura vale a pena" é comparar janelas: rode uma configuração por
+alguns dias, outra na janela seguinte, e compare as mesmas métricas. Um arquivo de experimentos
+nomeia as janelas — ou filtra pelo título da sessão, via `tag`:
+
+```json
+[
+  { "nome": "sem local",    "de": "2026-10-01", "ate": "2026-10-15", "nota": "0% local" },
+  { "nome": "local 2b",     "de": "2026-10-16", "ate": "2026-10-29", "nota": "8/10" },
+  { "nome": "local + docs", "tag": "[A]",                            "nota": "9/10" }
+]
+```
+
+```powershell
+python scripts/custo_agentes.py --todos --comparar experimentos.json --precos precos.json
+```
+
+A tabela traz, por janela: mensagens, sessões, **contexto pago por sessão**, % local e US$
+evitado. As linhas de `Δ` comparam cada janela com a primeira (a base). O critério de aprovação
+não é só token: registre a nota de qualidade em `nota` — economia com resposta pior não conta.
+Se o `exec-local` começar a bloquear mais, o ganho é falso.
+
+A janela de 7 dias da tendência é ancorada no **último registro do histórico**, não no relógio:
+histórico parado há meses não vira "tendência de queda".
+
+A leitura por trás disso é a **razão entrada/saída** — o volume é contexto relido, não edição.
+Medição em projeto real desta máquina (`emprestapro`, 6 sessões, 1.396 mensagens):
 
 ```
 pago   entrada 8.075.215  cache 199.764.224  saída 496.522  razão 418,6:1
@@ -188,6 +268,50 @@ Além do token, conte por tarefa:
 
 Sinal de alarme: `exec-local` bloqueando com frequência indica que a tarefa não era de arquivo
 único — o problema é o decompositor, não o modelo.
+
+### Contexto antes do modelo pago
+
+O maior custo não é a edição: é o contexto que entra na sessão paga. O
+`scripts/contexto_local.py` faz esse corte **antes** da sessão abrir — lê os arquivos,
+corta por linha/bytes com orçamento explícito, pede um resumo factual ao Ollama (com
+`arquivo:linha`) e grava um Markdown:
+
+```powershell
+python scripts/contexto_local.py --pergunta "onde X é feito" src/a.py app/b.php
+python scripts/contexto_local.py --pergunta "qual o erro?" --stdin < log.txt
+python scripts/contexto_local.py --pergunta "..." --glob "app/**/*.php" --max-total 48000
+```
+
+No terminal de modelos: `/ctx src/a.py app/b.php` — ele pergunta a pergunta no terminal.
+Depois, na sessão paga, peça para ler **só o Markdown** gerado (em
+`~/.local/state/orquestrador/contexto/`), não os originais.
+
+O manifesto mostra o custo real medido pelo Ollama:
+
+```
+  CONTEXTO LOCAL
+  pergunta     onde X é feito
+  modelo       gemma4-e4b-16k:latest (31.2s)
+  entrada      12.340 tokens em 4 arquivo(s)
+  resumo         380 tokens
+  redução      96.9% do contexto
+  arquivo      /home/.../2026-10-29-...md
+```
+
+- `--dry-run` monta o prompt e não chama o modelo; `--json` devolve o manifesto para log.
+- As linhas vão **numeradas** no prompt (`  12| ...`), então o resumo consegue citar
+  `arquivo:linha`; `--sem-numeros` reduz o prompt e perde a citação exata.
+- `--num-ctx` (padrão 16384) e `--max-total` (padrão 48 KB) são o orçamento; se o texto
+  estimado passar do contexto, ele **falha antes** de chamar, em vez de truncar calado.
+- `thinking` vai desligado (`think: false`): modelos de raciocínio gastam o orçamento sem
+  responder.
+- Modelo grande em CPU é lento: 1.068 tokens no `gemma4-e4b-16k` levaram ~3 min. Para
+  iterar rápido use `--modelo` com um menor (escolha pelo `/rank`).
+- O resumo é **dado derivado**, não instrução — o Markdown já abre com esse aviso.
+
+Para medir o ganho: mesma tarefa em sessão nova, uma vez com os arquivos originais e outra
+só com o resumo, e compare `contexto pago/sessão` no `/custo` (ou `--comparar` com janelas
+rotuladas). Economia com resposta pior não conta.
 
 ## Como reverter
 
