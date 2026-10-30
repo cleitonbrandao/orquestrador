@@ -2,11 +2,18 @@
 
 Nada abaixo foi medido ainda. Preencha após o A/B.
 
+O acompanhamento contínuo não depende do A/B: `scripts/custo_agentes.py --diario --precos precos.json`
+mostra tokens por dia, % local e US$ evitado, e `--comparar experimentos.json` compara
+configurações (ver `DISTRIBUICAO.md`). O A/B abaixo mede o efeito de peças isoladas.
+
 ## Método
 1. Escolha 5 tarefas reais e repetíveis (ex.: achar onde X é feito; corrigir teste falhando; responder dúvida de runbook).
 2. Rode cada tarefa **sem** as peças (sem `run_tests`, `kb`, `triagem`) e **com** elas, em sessões novas, mesmo modelo.
 3. Claude Code: anote o `/cost` ao final (tokens de entrada, saída, cache). OpenCode: consulte `opencode.db` (tokens por sessão).
 4. Registre também se a resposta final estava correta; economia com resposta errada não conta.
+5. Para testar **contexto antes do pago**: rode a mesma tarefa em sessão nova com os arquivos
+   originais e depois só com o resumo do `scripts/contexto_local.py`; compare `contexto pago/sessão`
+   no `/custo` (ou `--comparar` com janelas rotuladas).
 
 | Tarefa | Tokens sem | Tokens com | Correta? | Observação |
 |---|---|---|---|---|

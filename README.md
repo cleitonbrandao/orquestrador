@@ -20,7 +20,8 @@ Funciona em **Windows** e **Linux/macOS**, em qualquer repositório, sem precisa
 - Testes de modelos para suporte e análise de texto (trilhas E e F): [`docs/PLANO-TESTES-SUPORTE.md`](docs/PLANO-TESTES-SUPORTE.md)
 - Benchmark multimodal (texto, imagem, áudio, fala): [`docs/BENCH-OMNI.md`](docs/BENCH-OMNI.md)
 - Distribuição local vs. pago: [`docs/DISTRIBUICAO.md`](docs/DISTRIBUICAO.md)
-- Consumo de tokens por agente: [`scripts/custo_agentes.py`](scripts/custo_agentes.py)
+- Consumo e economia de tokens por agente/dia — gráfico no terminal: `/custo` em [`scripts/modelos.sh`](scripts/modelos.sh) ou [`scripts/custo_agentes.py`](scripts/custo_agentes.py)
+- Contexto resumido no local antes da sessão paga: [`scripts/contexto_local.py`](scripts/contexto_local.py) (`/ctx` no terminal de modelos)
 
 ---
 
@@ -44,12 +45,12 @@ Funciona em **Windows** e **Linux/macOS**, em qualquer repositório, sem precisa
 | Componente | Modelo / tipo | Papel |
 |---|---|---|
 | `orquestrador` | primary, **sem pin** (segue `/models`) | arquitetura, mudanças complexas, integração; não lê PHP/SQL — delega |
-| `decompositor` | `ollama/qwen3.5-4b-16k:latest` | quebrar pedido em tarefas (read-only) |
-| `local-helper` | `ollama/qwen3.5-4b-16k:latest` | ler/explicar código; usa `kb` e `trail` |
+| `decompositor` | `ollama/qwen3.5-2b-32k:latest` | quebrar pedido em tarefas (read-only) |
+| `local-helper` | `ollama/gemma4-e2b-32k:latest` | ler/explicar código; usa `kb` e `trail` |
 | `local-mini` | `ollama/qwen3.5-08b-8k:latest` | leitura pontual de um trecho/arquivo curto |
-| `revisor` | `ollama/qwen3.5-2b-16k:latest` | revisão advisory do diff, sem ferramentas |
-| `exec-local` | `ollama/gemma4-e4b-16k:latest` | edição pequena em **um** arquivo, com teste determinístico |
-| `exec-docs` | `ollama/gemma4-e4b-16k:latest` | editar Markdown; verificação fica no orquestrador |
+| `revisor` | `ollama/qwen3.5-2b-32k:latest` | revisão advisory do diff, sem ferramentas |
+| `exec-local` | `ollama/gemma4-e2b-32k:latest` | edição pequena em **um** arquivo, com teste determinístico |
+| `exec-docs` | `ollama/gemma4-e2b-32k:latest` | editar Markdown; verificação fica no orquestrador |
 | `executor` | modelo principal | edição geral (o que não é arquivo único) |
 | `exec-backend` | modelo principal | PHP/Laravel: rotas, models, policies, jobs |
 | `exec-dados` | modelo principal | migrations, Eloquent, SQL, índices |
