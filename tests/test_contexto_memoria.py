@@ -29,6 +29,14 @@ class PastaTest(unittest.TestCase):
     def test_slug_limpa_caracteres(self):
         self.assertEqual(cm.slug("Softnews Notion!!"), "softnews-notion")
         self.assertEqual(cm.slug(""), "projeto")
+        self.assertEqual(cm.slug("."), "projeto")
+
+    def test_raiz_ponto_usa_o_nome_do_diretorio_atual(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.dict(os.environ, {"XDG_STATE_HOME": tmp}):
+            pasta = cm.pasta_memoria(".")
+            self.assertEqual(pasta.name, cm.slug(Path.cwd().name))
+            self.assertNotEqual(pasta.name, ".")
 
 
 class CriarTest(unittest.TestCase):

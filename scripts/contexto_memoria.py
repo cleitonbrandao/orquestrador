@@ -47,14 +47,20 @@ class MemoriaError(Exception):
 def slug(texto: str, limite: int = 40) -> str:
     """Nome de pasta seguro a partir do caminho do projeto."""
     sem_acento = unicodedata.normalize("NFKD", str(texto)).encode("ascii", "ignore").decode()
-    limpo = re.sub(r"[^a-zA-Z0-9._-]+", "-", sem_acento).strip("-").lower()
+    limpo = re.sub(r"[^a-zA-Z0-9._-]+", "-", sem_acento).strip("-").strip(".").lower()
     return (limpo or "projeto")[:limite].strip("-") or "projeto"
 
 
 def pasta_memoria(projeto) -> Path:
     """`$XDG_STATE_HOME/orquestrador/memoria/<slug do projeto>`."""
     base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
-    nome = Path(str(projeto)).name or str(projeto)
+    caminho = Path(str(projeto)).expanduser()
+    try:
+        nome = caminho.resolve().name
+    except OSError:
+        nome = caminho.name
+    if not nome or nome in (".", ".."):
+        nome = "projeto"
     return base / "orquestrador" / "memoria" / slug(nome)
 
 
