@@ -165,8 +165,12 @@ ok "launcher: $BIN_DIR/orq-kb -> mcp/kb/kb.py"
 chmod +x "$REPO_DIR/mcp/decisao/server.py"
 ln -sf "$REPO_DIR/mcp/decisao/server.py" "$BIN_DIR/orq-decisor"
 ok "launcher: $BIN_DIR/orq-decisor -> mcp/decisao/server.py"
+
+ln -sf "$REPO_DIR/mcp/contexto/server.py" "$BIN_DIR/orq-contexto"
+chmod +x "$REPO_DIR/mcp/contexto/server.py"
+ok "launcher: $BIN_DIR/orq-contexto -> mcp/contexto/server.py"
 command -v python3 >/dev/null 2>&1 || fail "python3 não encontrado (necessário para o run_tests)"
-case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR não está no PATH; o OpenCode não achará orq-run-tests/orq-kb/orq-decisor" ;; esac
+case ":$PATH:" in *":$BIN_DIR:"*) ;; *) warn "$BIN_DIR não está no PATH; o OpenCode não achará orq-run-tests/orq-kb/orq-decisor/orq-contexto" ;; esac
 
 if [ "$SKIP_MODEL" -eq 1 ]; then
   step "Ollama: ignorado (--no-model)"

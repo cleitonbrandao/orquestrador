@@ -327,6 +327,22 @@ python scripts/contexto_local.py --pergunta "..." --raiz . --pacote contexto.jso
 
 `--regras` e `--decisoes` aceitam caminhos alternativos; `--memoria` troca a pasta.
 
+### Servidor MCP
+
+`orq-contexto` (roadmap §10) expõe o que os scripts já fazem, sem reescrever lógica:
+
+| Ferramenta | O que devolve |
+|---|---|
+| `context_build` | pacote §6 pronto (resumo local + regras + decisões + validação); `dry_run` não chama o modelo |
+| `context_get_file` | trecho com número de linha, recusando `.env` e caminho fora da raiz |
+| `context_get_rules` / `context_get_decisions` | memória do projeto, filtrada por prioridade/relevância |
+| `context_validate` | revalida um pacote por objeto ou arquivo |
+| `context_metrics` | redução média, tokens e pendências das execuções |
+| `context_search` | busca textual no `kb` (precisa do app indexado) |
+
+Tudo somente leitura: nada é escrito no projeto e o conteúdo lido é tratado como dado.
+Cada `context_build` registra uma linha em `~/.local/state/orquestrador/contexto/metrics.jsonl`.
+
 O manifesto mostra o custo real medido pelo Ollama:
 
 ```

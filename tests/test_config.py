@@ -83,7 +83,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_servidores_mcp(self):
         servidores = self.d["mcp"]["servers"]
-        for nome in ("trail", "run_tests", "kb", "decisao"):
+        for nome in ("trail", "run_tests", "kb", "decisao", "contexto"):
             self.assertIn(nome, servidores)
         self.assertEqual(servidores["decisao"]["command"], ["orq-decisor"])
 

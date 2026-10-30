@@ -90,7 +90,7 @@ pedem já está no repositório:
 | Context Validator (§4.4) | **novo** | `scripts/contexto_pacote.py` | — |
 | Pacote §6 | **novo** | `contexto_local.py --pacote` | `reason` por arquivo ainda vazio |
 | Memória persistente (§7) | **não existe** | — | próxima fase |
-| Servidor MCP (§10) | padrão pronto | 4 servidores em uso | falta o do Context Manager |
+| Servidor MCP (§10) | **novo** | `mcp/contexto/server.py` (`orq-contexto`) | — |
 | Métricas (§12) | sim | `custo_agentes.py`, `context_metrics` do pacote | falta cruzar economia × qualidade |
 
 ## 4. O que foi entregue nesta fase

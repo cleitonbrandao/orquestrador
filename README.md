@@ -58,6 +58,7 @@ Funciona em **Windows** e **Linux/macOS**, em qualquer repositório, sem precisa
 | `run_tests` | MCP determinístico (Python stdlib) | rodar testes e devolver saída literal |
 | `kb` / `trail` | MCP | busca por trechos e grafo de símbolos |
 | `decisao` | MCP + `d3:2b` | triagem local (`orq_decidir`): só docs? qual área? escala ou não |
+| `contexto` | MCP + `qwen3.5-2b-32k` | pacote de contexto (§6) com regras/decisões do projeto |
 
 Os cinco agentes em **modelo principal** são o orquestrador e os quatro executores de
 código (`executor`, `exec-backend`, `exec-dados`, `exec-frontend`). O resto roda local:
@@ -74,7 +75,7 @@ timeout (tratar como *não verificado*). Allowlist: phpunit/pest, `php artisan t
 `composer test`, `npm|pnpm|yarn test`, vitest/jest, pytest, `go|cargo|dotnet test`,
 `mvn|gradle test`. Estenda com `ORQ_TESTS_ALLOW="regex;;regex"`. Pipes, `;`, `&`, `>` e
 `$()` são recusados; `install`, `migrate`, `db:`, `rm`, `docker`, `curl` também.
-Instalados como `orq-run-tests` e `orq-kb` em `~/.local/bin` (Windows: `.cmd` em `%USERPROFILE%\.local\bin`).
+Instalados como `orq-run-tests`, `orq-kb`, `orq-decisor` e `orq-contexto` em `~/.local/bin` (Windows: `.cmd` em `%USERPROFILE%\.local\bin`).
 No Windows, o instalador também coloca essa pasta no `PATH` do usuário.
 
 O `orquestrador` **não tem modelo fixo de propósito**: o modelo ativo é o que você escolhe
@@ -280,7 +281,9 @@ orquestrador/
 │       └── ollama-nothink.ts    # reasoning_effort: none para o Ollama
 ├── mcp/
 │   ├── run_tests/server.py      # MCP: testes com saída condensada
-│   └── kb/kb.py                 # MCP + CLI: base de conhecimento por app (BM25 + embeddings opcionais)
+│   ├── kb/kb.py                 # MCP + CLI: base de conhecimento por app (BM25 + embeddings opcionais)
+│   ├── decisao/server.py        # MCP: triagem local (d3)
+│   └── contexto/server.py       # MCP: pacote de contexto + regras/decisões (roadmap §10)
 ├── claude/                      # subagente `triagem` e trecho de CLAUDE.md (ver docs/CLAUDE-CODE.md)
 ├── docs/
 │   ├── AMBIENTE.md              # setup exato onde foi validado

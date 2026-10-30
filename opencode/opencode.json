@@ -363,6 +363,13 @@
           "orq-decisor"
         ],
         "codemode": false
+      },
+      "contexto": {
+        "type": "local",
+        "command": [
+          "orq-contexto"
+        ],
+        "codemode": false
       }
     }
   },

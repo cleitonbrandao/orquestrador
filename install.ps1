@@ -153,7 +153,8 @@ if (-not $Py) { Write-Fail "python não encontrado (necessário para run_tests e
 $servers = @(
     @{ Name = "orq-run-tests"; Script = Join-Path $RepoDir "mcp\run_tests\server.py" },
     @{ Name = "orq-kb";        Script = Join-Path $RepoDir "mcp\kb\kb.py" },
-    @{ Name = "orq-decisor";   Script = Join-Path $RepoDir "mcp\decisao\server.py" }
+    @{ Name = "orq-decisor";   Script = Join-Path $RepoDir "mcp\decisao\server.py" },
+    @{ Name = "orq-contexto";  Script = Join-Path $RepoDir "mcp\contexto\server.py" }
 )
 foreach ($s in $servers) {
     $launcher = Join-Path $BinDir ($s.Name + ".cmd")
