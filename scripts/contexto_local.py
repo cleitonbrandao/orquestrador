@@ -38,6 +38,7 @@ from contexto_memoria import (
     carregar_regras,
     criar as criar_memoria,
     pasta_memoria,
+    selecionar_regras,
 )
 from contexto_memoria import relevantes as decisoes_relevantes
 from contexto_pacote import montar as montar_pacote
@@ -404,17 +405,21 @@ def principal(argv=None) -> int:
         if args.pacote:
             caminho_regras = (args.regras or memoria / NOME_REGRAS).expanduser()
             caminho_decisoes = (args.decisoes or memoria / NOME_DECISOES).expanduser()
-            regras, decisoes = [], []
+            regras, decisoes, omitidas = [], [], 0
+            alvo = " ".join([pergunta] + [str(t["nome"]) for t in trechos if t["incluido"]])
+            arquivos = [str(t["nome"]) for t in trechos if t["incluido"]]
             try:
                 if caminho_regras.is_file():
-                    regras = carregar_regras(caminho_regras)
+                    todas = carregar_regras(caminho_regras)
+                    regras = selecionar_regras(todas, alvo, arquivos)
+                    omitidas = len(todas) - len(regras)
                 if caminho_decisoes.is_file():
-                    alvo = " ".join([pergunta] + [str(t["nome"]) for t in trechos if t["incluido"]])
                     decisoes = decisoes_relevantes(carregar_decisoes(caminho_decisoes), alvo)
             except MemoriaError as exc:
                 raise ContextoError(str(exc)) from exc
             if regras or decisoes:
-                print(f"  memória      {len(regras)} regra(s), {len(decisoes)} decisão(ões)")
+                extra = f" ({omitidas} P1 omitida(s))" if omitidas else ""
+                print(f"  memória      {len(regras)} regra(s){extra}, {len(decisoes)} decisão(ões)")
 
             texto_fonte = "\n".join(t["texto"] for t in trechos if t["incluido"])
             pacote = validar_pacote(

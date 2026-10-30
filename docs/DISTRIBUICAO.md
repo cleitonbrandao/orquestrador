@@ -315,7 +315,10 @@ python scripts/contexto_local.py --pergunta "..." --raiz . --pacote contexto.jso
 
 - **Regras** entram **verbatim** em `critical_rules`, prefixadas com a prioridade
   (`P0 · …`). O modelo local nunca as reescreve; se ele sugerir regras, elas são
-  descartadas quando há memória.
+  descartadas quando há memória. **P0 entra sempre**; P1+ só entra quando a tarefa
+  menciona a regra ou quando o caminho lido casa com o campo `applies_to`
+  (`["*.jsx"]`, `["tools/conferencia-conversao/*"]`). Com 12 regras no
+  `softnews-notion`, isso cortou ~40% do peso do pacote sem tocar em segurança.
 - **Decisões** são filtradas por termos da pergunta e dos arquivos lidos (palavras
   comuns como "como"/"para" não contam) — sem casamento, entram as mais recentes,
   no máximo 5.

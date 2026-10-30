@@ -26,6 +26,7 @@ import json
 import os
 import re
 import unicodedata
+from fnmatch import fnmatch
 from pathlib import Path
 
 NOME_REGRAS = "business_rules.json"
@@ -77,7 +78,7 @@ def _ler(caminho) -> object:
 
 
 def carregar_regras(caminho) -> list[dict]:
-    """Regras normalizadas: id, priority, text. Preserva a ordem do arquivo."""
+    """Regras normalizadas: id, priority, text, applies_to. Preserva a ordem."""
     dados = _ler(caminho)
     itens = dados.get("rules") if isinstance(dados, dict) else dados
     if not isinstance(itens, list):
@@ -85,12 +86,17 @@ def carregar_regras(caminho) -> list[dict]:
     regras = []
     for posicao, item in enumerate(itens, 1):
         if isinstance(item, str) and item.strip():
-            regras.append({"id": f"R{posicao}", "priority": "P0", "text": item.strip()})
+            regras.append({"id": f"R{posicao}", "priority": "P0",
+                           "text": item.strip(), "applies_to": []})
         elif isinstance(item, dict) and str(item.get("text") or "").strip():
+            padroes = item.get("applies_to") or []
+            if not isinstance(padroes, list):
+                raise MemoriaError(f"{caminho}: 'applies_to' da regra {posicao} deve ser lista")
             regras.append({
                 "id": str(item.get("id") or f"R{posicao}"),
                 "priority": str(item.get("priority") or "P0").upper(),
                 "text": str(item["text"]).strip(),
+                "applies_to": [str(p) for p in padroes],
             })
         else:
             raise MemoriaError(f"{caminho}: regra {posicao} precisa de 'text'")
@@ -131,6 +137,45 @@ def _normalizar(texto: str) -> str:
     return sem_acento.lower()
 
 
+def _termos(alvo: str) -> set[str]:
+    return {
+        t for t in re.findall(r"[a-z0-9./_-]{4,}", _normalizar(alvo or ""))
+        if t not in _PARADAS
+    }
+
+
+def _aplica_por_arquivo(regra: dict, arquivos) -> bool:
+    """`applies_to` casa pelo caminho do arquivo (glob ou trecho literal)."""
+    padroes = regra.get("applies_to") or []
+    if not padroes or not arquivos:
+        return False
+    for padrao in padroes:
+        alvo = padrao.lower()
+        for arquivo in arquivos:
+            caminho = str(arquivo).lower()
+            if fnmatch(caminho, alvo) or alvo in caminho:
+                return True
+    return False
+
+
+def selecionar_regras(regras: list[dict], alvo: str, arquivos=()) -> list[dict]:
+    """P0 sempre entra; P1+ só quando mencionada ou quando `applies_to` casa.
+
+    Segurança não se negocia com filtro de relevância: o que é P0 fica inteiro.
+    O resto é contexto e sai quando não tem relação com a tarefa.
+    """
+    termos = _termos(alvo)
+    selecionadas = []
+    for regra in regras:
+        if regra["priority"] == "P0":
+            selecionadas.append(regra)
+            continue
+        corpo = _normalizar(f"{regra['id']} {regra['text']}")
+        if any(termo in corpo for termo in termos) or _aplica_por_arquivo(regra, arquivos):
+            selecionadas.append(regra)
+    return selecionadas
+
+
 def relevantes(decisoes: list[dict], alvo: str, limite: int = LIMITE_DECISOES) -> list[dict]:
     """Filtra decisões por termos do alvo (pergunta + arquivos).
 
@@ -138,10 +183,7 @@ def relevantes(decisoes: list[dict], alvo: str, limite: int = LIMITE_DECISOES) -
     que memória genérica, mas nunca maior que `limite`.
     """
     limite = max(1, int(limite))
-    termos = {
-        t for t in re.findall(r"[a-z0-9./_-]{4,}", _normalizar(alvo or ""))
-        if t not in _PARADAS
-    }
+    termos = _termos(alvo)
     casadas = []
     for decisao in decisoes:
         corpo = _normalizar(" ".join(

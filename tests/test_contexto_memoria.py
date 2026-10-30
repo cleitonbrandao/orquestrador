@@ -76,7 +76,8 @@ class RegrasTest(unittest.TestCase):
         caminho = escrever(self.pasta, "r.json", ["Toda consulta respeita team_id"])
         regras = cm.carregar_regras(caminho)
         self.assertEqual(regras, [{"id": "R1", "priority": "P0",
-                                   "text": "Toda consulta respeita team_id"}])
+                                   "text": "Toda consulta respeita team_id",
+                                   "applies_to": []}])
 
     def test_aceita_objeto_com_rules_e_prioridade(self):
         caminho = escrever(self.pasta, "r.json", {"rules": [
@@ -100,6 +101,35 @@ class RegrasTest(unittest.TestCase):
     def test_arquivo_ausente_falha(self):
         with self.assertRaises(cm.MemoriaError):
             cm.carregar_regras(self.pasta / "nao-existe.json")
+
+
+class SelecaoRegrasTest(unittest.TestCase):
+    REGRAS = [
+        {"id": "p0", "priority": "P0", "text": "team_id em toda consulta", "applies_to": []},
+        {"id": "jsx", "priority": "P1", "text": "usar Inertia", "applies_to": ["*.jsx"]},
+        {"id": "sla", "priority": "P1", "text": "documentar SLA", "applies_to": []},
+    ]
+
+    def test_p0_entra_sempre(self):
+        achadas = cm.selecionar_regras(self.REGRAS, "assunto aleatorio sem relacao")
+        self.assertEqual([r["id"] for r in achadas], ["p0"])
+
+    def test_p1_entra_quando_mencionada(self):
+        achadas = cm.selecionar_regras(self.REGRAS, "preciso documentar o SLA disso")
+        self.assertEqual([r["id"] for r in achadas], ["p0", "sla"])
+
+    def test_p1_entra_pelo_applies_to(self):
+        achadas = cm.selecionar_regras(
+            self.REGRAS, "ajustar tela", ["app/resources/js/Pages/X.jsx"]
+        )
+        self.assertEqual([r["id"] for r in achadas], ["p0", "jsx"])
+
+    def test_p0_fica_mesmo_com_applies_to_furado(self):
+        regras = [{"id": "p0", "priority": "P0", "text": "seguranca", "applies_to": ["*.jsx"]}]
+        self.assertEqual(len(cm.selecionar_regras(regras, "nada")), 1)
+
+    def test_sem_regras_devolve_vazio(self):
+        self.assertEqual(cm.selecionar_regras([], "qualquer"), [])
 
 
 class DecisoesTest(unittest.TestCase):
