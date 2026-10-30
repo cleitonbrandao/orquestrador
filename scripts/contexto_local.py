@@ -30,6 +30,16 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+from contexto_memoria import (
+    NOME_DECISOES,
+    NOME_REGRAS,
+    MemoriaError,
+    carregar_decisoes,
+    carregar_regras,
+    criar as criar_memoria,
+    pasta_memoria,
+)
+from contexto_memoria import relevantes as decisoes_relevantes
 from contexto_pacote import montar as montar_pacote
 from contexto_pacote import validar as validar_pacote
 
@@ -314,10 +324,27 @@ def principal(argv=None) -> int:
                    help="grava o pacote de contexto em JSON (roadmap §6) já validado")
     p.add_argument("--raiz", type=Path, default=Path("."),
                    help="raiz do repositório para validar os caminhos do pacote (padrão: .)")
+    p.add_argument("--memoria", type=Path,
+                   help="pasta da memória do projeto (padrão: XDG state/orquestrador/memoria/<projeto>)")
+    p.add_argument("--regras", type=Path,
+                   help="business_rules.json (padrão: <memória>/business_rules.json)")
+    p.add_argument("--decisoes", type=Path,
+                   help="decisions.json (padrão: <memória>/decisions.json)")
+    p.add_argument("--init-memoria", action="store_true",
+                   help="cria os arquivos de memória do projeto e sai")
     p.add_argument("--stdout", action="store_true", help="também imprime o resumo")
     p.add_argument("--dry-run", action="store_true", help="monta o prompt e não chama o Ollama")
     p.add_argument("--json", action="store_true", help="manifesto em JSON")
     args = p.parse_args(argv)
+
+    memoria = (args.memoria or pasta_memoria(args.raiz)).expanduser()
+    if args.init_memoria:
+        criados = criar_memoria(memoria)
+        for caminho in criados:
+            print(f"  criado       {caminho}")
+        if not criados:
+            print(f"  memória      já existia em {memoria}")
+        return 0
 
     try:
         pergunta = (args.pergunta or "").strip()
@@ -375,9 +402,24 @@ def principal(argv=None) -> int:
 
         pacote = None
         if args.pacote:
+            caminho_regras = (args.regras or memoria / NOME_REGRAS).expanduser()
+            caminho_decisoes = (args.decisoes or memoria / NOME_DECISOES).expanduser()
+            regras, decisoes = [], []
+            try:
+                if caminho_regras.is_file():
+                    regras = carregar_regras(caminho_regras)
+                if caminho_decisoes.is_file():
+                    alvo = " ".join([pergunta] + [str(t["nome"]) for t in trechos if t["incluido"]])
+                    decisoes = decisoes_relevantes(carregar_decisoes(caminho_decisoes), alvo)
+            except MemoriaError as exc:
+                raise ContextoError(str(exc)) from exc
+            if regras or decisoes:
+                print(f"  memória      {len(regras)} regra(s), {len(decisoes)} decisão(ões)")
+
             texto_fonte = "\n".join(t["texto"] for t in trechos if t["incluido"])
             pacote = validar_pacote(
-                montar_pacote(pergunta, trechos, resumo, args.modelo, raiz=args.raiz),
+                montar_pacote(pergunta, trechos, resumo, args.modelo, raiz=args.raiz,
+                              regras=regras, decisoes=decisoes),
                 raiz=args.raiz,
                 texto_fonte=texto_fonte,
             )

@@ -74,6 +74,20 @@ class MontarTest(unittest.TestCase):
             pacote = cp.montar("t", [trecho("a.py", "x")], {"texto": texto})
             self.assertEqual(pacote["critical_rules"], [], texto)
 
+    def test_regras_entram_verbatim_e_vencem_o_modelo(self):
+        texto = '```json\n{"critical_rules": ["inventada pelo modelo"]}\n```'
+        pacote = cp.montar(
+            "t", [trecho("a.py", "x")], {"texto": texto},
+            regras=[{"id": "R1", "priority": "P0", "text": "toda consulta respeita team_id"}],
+        )
+        self.assertEqual(pacote["critical_rules"], ["P0 · toda consulta respeita team_id"])
+
+    def test_decisoes_entram_no_pacote(self):
+        decisoes = [{"id": "D1", "description": "grafo substitui PhaseTrail", "rationale": "",
+                     "files": [], "date": "", "status": "aceita", "references": []}]
+        pacote = cp.montar("t", [trecho("a.py", "x")], decisoes=decisoes)
+        self.assertEqual(pacote["decisions"][0]["id"], "D1")
+
 
 class ValidarTest(unittest.TestCase):
     def setUp(self):
@@ -86,8 +100,8 @@ class ValidarTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def montar(self, trechos, texto=""):
-        return cp.montar("t", trechos, {"texto": texto} if texto else None)
+    def montar(self, trechos, texto="", decisoes=None):
+        return cp.montar("t", trechos, {"texto": texto} if texto else None, decisoes=decisoes)
 
     def test_arquivo_existente_confirmado(self):
         pacote = cp.validar(self.montar([trecho("app/a.py", "Sale")]), self.raiz)
@@ -139,6 +153,20 @@ class ValidarTest(unittest.TestCase):
         texto = '```json\n{"missing_information": ["falta a policy"]}\n```'
         pacote = cp.validar(self.montar([trecho("app/a.py", "Sale")], texto), self.raiz)
         self.assertIn("falta a policy", pacote["missing_information"])
+
+    def test_decisao_com_arquivo_existente_confirmada(self):
+        decisoes = [{"id": "D1", "description": "x", "files": ["app/a.py"], "rationale": "",
+                     "date": "", "status": "", "references": []}]
+        pacote = cp.validar(self.montar([trecho("app/a.py", "Sale")], decisoes=decisoes), self.raiz)
+        self.assertTrue(pacote["decisions"][0]["confirmed"])
+        self.assertEqual(pacote["validation"]["pending"], 0)
+
+    def test_decisao_com_arquivo_inexistente_fica_pendente(self):
+        decisoes = [{"id": "D1", "description": "x", "files": ["app/fantasma.py"], "rationale": "",
+                     "date": "", "status": "", "references": []}]
+        pacote = cp.validar(self.montar([trecho("app/a.py", "Sale")], decisoes=decisoes), self.raiz)
+        self.assertFalse(pacote["decisions"][0]["confirmed"])
+        self.assertIn("D1", " ".join(pacote["missing_information"]))
 
 
 if __name__ == "__main__":

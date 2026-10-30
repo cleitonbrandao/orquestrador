@@ -253,6 +253,37 @@ class PrincipalTest(unittest.TestCase):
         self.assertEqual(pacote["validation"]["pending"], 1)
         self.assertIn("nao-existe.php:9", " ".join(pacote["missing_information"]))
 
+    def test_init_memoria_cria_arquivos_do_projeto(self):
+        with mock.patch.dict(os.environ, {"XDG_STATE_HOME": str(self.dir)}):
+            codigo, saida, _ = self.rodar("--init-memoria", "--raiz", str(self.dir))
+        self.assertEqual(codigo, 0)
+        self.assertIn("criado", saida)
+        pasta = self.dir / "orquestrador" / "memoria" / self.dir.name
+        self.assertTrue((pasta / "business_rules.json").is_file())
+        self.assertTrue((pasta / "decisions.json").is_file())
+
+    def test_pacote_inclui_regras_e_decisoes(self):
+        falso = {"texto": "ok", "entrada": 10, "saida": 5, "duracao": 0.5}
+        regras = self.dir / "r.json"
+        regras.write_text(json.dumps({"rules": [{"priority": "P0", "text": "team_id"}]}),
+                          encoding="utf-8")
+        decisoes = self.dir / "d.json"
+        decisoes.write_text(json.dumps({"decisions": [
+            {"id": "D1", "description": "alfa virou grafo", "files": []},
+        ]}), encoding="utf-8")
+        destino = self.dir / "pacote.json"
+        with mock.patch.object(cl, "resumir", return_value=falso):
+            codigo, saida, _ = self.rodar(
+                "--pergunta", "alfa", "--raiz", str(self.dir), "--saida", str(self.saida),
+                "--pacote", str(destino), "--regras", str(regras),
+                "--decisoes", str(decisoes), str(self.arquivo),
+            )
+        self.assertEqual(codigo, 0)
+        pacote = json.loads(destino.read_text(encoding="utf-8"))
+        self.assertEqual(pacote["critical_rules"], ["P0 · team_id"])
+        self.assertEqual(pacote["decisions"][0]["id"], "D1")
+        self.assertIn("1 regra(s), 1 decisão(ões)", saida)
+
     def test_contexto_maior_que_num_ctx_falha_antes_da_rede(self):
         grande = self.dir / "grande.txt"
         grande.write_text("x" * 400, encoding="utf-8")

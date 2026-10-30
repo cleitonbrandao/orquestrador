@@ -135,6 +135,8 @@ valer algo é o que ele não consegue responder: regras de negócio e decisões
 anteriores. Um MCP sem memória devolve o mesmo resumo que o `contexto_local` já
 devolve, com uma chamada de rede a mais.
 
-Ordem sugerida: `business_rules.json` + `decisions.json` preenchidos à mão a partir de
-`docs/` → `contexto_local.py` consome os dois (`--regras`, `--decisoes`) → só então o
-servidor MCP.
+**Situação em 2026-10-30:** a memória mínima foi implementada —
+`scripts/contexto_memoria.py` (`business_rules.json` + `decisions.json` por projeto,
+regras verbatim no pacote, decisões filtradas por relevância e com os arquivos
+conferidos no disco). Falta antes do MCP: preencher a memória de um projeto real e
+medir se o pacote melhora a qualidade da execução seguinte.

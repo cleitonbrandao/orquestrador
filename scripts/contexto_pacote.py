@@ -85,7 +85,8 @@ def extras(texto: str) -> dict:
     return dados if isinstance(dados, dict) else {}
 
 
-def montar(pergunta, trechos, resumo=None, modelo="", projeto=None, raiz=".") -> dict:
+def montar(pergunta, trechos, resumo=None, modelo="", projeto=None, raiz=".",
+           regras=None, decisoes=None) -> dict:
     """Pacote §6 a partir das fontes lidas. Sem inventar campo."""
     raiz = Path(raiz or ".")
     texto = (resumo or {}).get("texto") or ""
@@ -151,6 +152,14 @@ def montar(pergunta, trechos, resumo=None, modelo="", projeto=None, raiz=".") ->
         valor = dados.get(chave)
         if isinstance(valor, list):
             pacote[chave] = [str(v) for v in valor]
+
+    # Memória do projeto (§7) entra verbatim: regra não passa pelo modelo.
+    if regras:
+        pacote["critical_rules"] = [
+            f"{r['priority']} · {r['text']}" if r.get("priority") else r["text"] for r in regras
+        ]
+    if decisoes:
+        pacote["decisions"] = [dict(d) for d in decisoes]
     return pacote
 
 
@@ -203,6 +212,23 @@ def validar(pacote: dict, raiz=".", texto_fonte: str = "") -> dict:
         if texto_fonte and dep not in texto_fonte:
             pendentes += 1
             pendencias.append(f"dependência não encontrada nas fontes: {dep}")
+        else:
+            confirmados += 1
+
+    for decisao in pacote.get("decisions") or []:
+        if not (decisao.get("files") or []):
+            continue
+        faltando = [
+            arquivo for arquivo in decisao["files"]
+            if not (caminho_permitido(_resolver(arquivo, raiz), raiz)
+                    and _resolver(arquivo, raiz).exists())
+        ]
+        decisao["confirmed"] = not faltando
+        if faltando:
+            pendentes += 1
+            pendencias.append(
+                f"decisão {decisao.get('id', '?')} cita arquivo inexistente: {', '.join(faltando)}"
+            )
         else:
             confirmados += 1
 

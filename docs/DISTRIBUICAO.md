@@ -302,6 +302,28 @@ enviado** com o resumo (inclui instruções); `context_metrics.reduction_percent
 do pacote compara os **arquivos lidos** (bytes/4) com o resumo. São medidas
 diferentes e ambas ficam registradas.
 
+### Memória do projeto
+
+O pacote não carrega histórico: carrega **regras e decisões**, que ficam fora da
+conversa em `~/.local/state/orquestrador/memoria/<projeto>/`.
+
+```powershell
+python scripts/contexto_local.py --init-memoria --raiz .   # cria os dois modelos
+# edite business_rules.json e decisions.json
+python scripts/contexto_local.py --pergunta "..." --raiz . --pacote contexto.json src/a.py
+```
+
+- **Regras** entram **verbatim** em `critical_rules`, prefixadas com a prioridade
+  (`P0 · …`). O modelo local nunca as reescreve; se ele sugerir regras, elas são
+  descartadas quando há memória.
+- **Decisões** são filtradas por termos da pergunta e dos arquivos lidos (palavras
+  comuns como "como"/"para" não contam) — sem casamento, entram as mais recentes,
+  no máximo 5.
+- Os arquivos citados por cada decisão são conferidos no disco: decisão que aponta
+  arquivo inexistente vira `missing_information` com `confirmed: false`.
+
+`--regras` e `--decisoes` aceitam caminhos alternativos; `--memoria` troca a pasta.
+
 O manifesto mostra o custo real medido pelo Ollama:
 
 ```
