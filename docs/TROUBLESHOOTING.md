@@ -339,3 +339,14 @@ Benchmark desta máquina (CPU, prompt real de ~8.100 tokens):
 | `qwen3.5-4b-32k` | 17,0 tok/s | 3,1 tok/s | 694 s | 5/9 |
 
 O 4B é mais lento **e** menos preciso que o 2B nesta tarefa.
+
+**Limite conhecido (2026-10-31):** 32k reduz, mas **não elimina** o problema. Sessão
+`ses_e700bf37affe…` (`local-helper` + `gemma4-e2b-32k`) fez compactação com sucesso
+(resumiu ~9 k tokens), recebeu resposta vazia do modelo e morreu no passo seguinte
+com o mesmo erro. O gatilho é o **estimador** (superestima ~33%) cruzar o limiar
+enquanto o conteúdo real ainda cabe no `keep` de 15.000 — aí a compactação resume
+tudo e não sobra texto.
+
+Se acontecer de novo, as saídas são, em ordem: (1) contexto 64k no agente local;
+(2) reduzir a superfície de ferramentas do agente (menos schemas = base menor);
+(3) repetir a delegação — é falha do turno, não do projeto.

@@ -43,6 +43,21 @@ python3 scripts/contexto_ab.py --on
 **Nomeie as sessões com o prefixo do braço** (`AB-A T2 redirecionamento`,
 `AB-B T2 redirecionamento`). A comparação por tag usa o título da sessão.
 
+## Execução headless (repetível)
+
+`opencode run` cria sessão nova a cada chamada e lê a config do zero — serve tanto
+para automatizar quanto para evitar o viés de conduzir a tarefa na mão:
+
+```bash
+opencode run --agent orquestrador --model deepseek/deepseek-flash \
+  --title "AB-A T4 r2" --auto \
+  "Como o sync SGD trata uma SSc que desapareceu da listagem?"
+```
+
+`--title` é o que o comparativo lê (`ab-a` / `ab-b`); `--auto` aprova o que não
+está negado (o `read` de PHP/SQL continua negado). Uma chamada por sessão, sem
+`--continue`, para não herdar histórico.
+
 ## Regras de validade
 
 Uma execução só conta se:
@@ -179,6 +194,59 @@ A regra fica **ligada, restrita a tarefa de leitura/entendimento**.
 repetições de cada — o doc pede 3. A decisão já se sustenta porque a direção é a
 mesma da rodada 1 (T4 −73%, T5 −36%) e a magnitude é grande; repetir serve para
 estreitar o intervalo, não para mudar o veredito.
+
+---
+
+# Rodada 3 — tentativa headless (2026-10-30/31)
+
+Feita com `opencode run --auto` em vez do TUI, 2 repetições extras por tarefa e
+braço. **4 das 7 execuções estouraram o timeout de 600 s** (loops de `grep`), uma
+morreu com `Subagent failed: Nothing to compact yet`, e uma foi interrompida.
+Só 4 execuções passaram nos critérios de validade.
+
+## Consolidado (só execuções válidas, 3 rodadas, 2 harnesses)
+
+| Tarefa | Braço | n | Média | Mediana |
+|---|---|---:|---:|---:|
+| T4 | A | 4 | 242.355 | 242.448 |
+| T4 | B | 3 | 131.541 | **82.956** |
+| T5 | A | 2 | 99.634 | 99.634 |
+| T5 | B | 3 | 142.846 | **58.656** |
+| **Total** | A | 6 | 194.782 | 211.778 |
+| **Total** | B | 6 | 137.194 | **70.806** |
+
+Δ pela **média**: −29,6% · Δ pela **mediana**: −66,6%.
+
+## Como ler isso
+
+- A distribuição é muito assimétrica (37 k a 484 k na mesma tarefa e braço), então
+  a **mediana** descreve melhor: B é mais barato nas duas tarefas.
+- Pela média, T5 inverte (+43%) por causa de **uma** sessão de 332 k. Um ponto
+  extremo não deve decidir a regra num n=6.
+- T4 se repete em três rodadas (−73%, −60%, −46% pela média): é o sinal mais firme
+  que existe neste benchmark.
+
+## O que impede um resultado controlado
+
+1. **Harness misto.** r1 foi TUI; r2/r3 foram `opencode run --auto`. Auto-aprovar
+   muda o comportamento (mais ferramentas, mais turnos) — as duas séries não são
+   diretamente comparáveis.
+2. **Timeout silencioso.** `opencode run` sem humano pode entrar em loop de busca
+   até o limite. 4 de 7 foi o que aconteceu.
+3. **Bug do subagente em 32k.** `local-helper` com `gemma4-e2b-32k` ainda morre com
+   `Nothing to compact yet` (sessão `ses_e700bf37affe…`: compactação resumiu 9 k
+   tokens, a resposta veio vazia e o passo seguinte não achou texto). Ver
+   `TROUBLESHOOTING.md`.
+4. **Variância de 4–8×** entre sessões da mesma tarefa. Com essa dispersão, n=3
+   não distingue 20% de 60%.
+
+## Veredito
+
+A regra **fica ligada e restrita a leitura/entendimento** — a mediana favorece B
+nas duas tarefas e T4 replica. Mas isto é evidência **direcional**, não
+controlada: para virar resultado, é preciso um harness só (headless com timeout
+maior e sem `--auto`, ou TUI), e o bug do subagente resolvido antes — ele injeta
+falha aleatória em qualquer braço.
 
 ## O que este benchmark não mede
 
