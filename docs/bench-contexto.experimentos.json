@@ -1,0 +1,12 @@
+[
+  {
+    "nome": "A · sem a regra CONTEXTO",
+    "tag": "ab-a",
+    "nota": "baseline: scripts/contexto_ab.py --off; sessões nomeadas com prefixo 'AB-A'"
+  },
+  {
+    "nome": "B · com a regra CONTEXTO",
+    "tag": "ab-b",
+    "nota": "regra ligada: scripts/contexto_ab.py --on; sessões nomeadas com prefixo 'AB-B'"
+  }
+]
