@@ -84,6 +84,9 @@ class ConfigTest(unittest.TestCase):
         self.assertIn("context_build", sistema)
         self.assertIn("context_get_rules", sistema)
         self.assertIn("confirmed: false", sistema)
+        # critério de adoção explícito: sem ele a regra é só prosa
+        self.assertIn("~2 mil tokens", sistema)
+        self.assertIn("3+ arquivos", sistema)
 
     def test_integrar_confere_o_diff(self):
         self.assertIn("nenhum arquivo fora das listas", self.agentes["orquestrador"]["system"])

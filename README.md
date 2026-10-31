@@ -22,6 +22,7 @@ Funciona em **Windows** e **Linux/macOS**, em qualquer repositório, sem precisa
 - Distribuição local vs. pago: [`docs/DISTRIBUICAO.md`](docs/DISTRIBUICAO.md)
 - Consumo e economia de tokens por agente/dia — gráfico no terminal: `/custo` em [`scripts/modelos.sh`](scripts/modelos.sh) ou [`scripts/custo_agentes.py`](scripts/custo_agentes.py)
 - Contexto resumido no local antes da sessão paga: [`scripts/contexto_local.py`](scripts/contexto_local.py) (`/ctx` no terminal de modelos)
+- Adesão ao MCP de contexto (quantas sessões usaram em vez de ler): [`scripts/contexto_adocao.py`](scripts/contexto_adocao.py)
 
 ---
 

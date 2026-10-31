@@ -346,8 +346,12 @@ Cada `context_build` registra uma linha em `~/.local/state/orquestrador/contexto
 O prompt do **orquestrador** tem a regra `CONTEXTO (regra de custo)`: antes de ler
 arquivos para entender uma área, chamar `context_build`; usar a memória por
 `context_get_rules`/`context_get_decisions`; e tratar `confirmed: false` como
-pendência, nunca como fato. A regra não se aplica a um arquivo único e trecho
-pontual — aí continua `local-helper`/`local-mini`.
+pendência, nunca como fato. A regra vale quando o contexto passa de ~2 mil tokens ou envolve 3+ arquivos; um
+arquivo só com trecho pontual continua `local-helper`/`local-mini`.
+
+Para saber se a regra pega, `scripts/contexto_adocao.py` lê o histórico e mostra a taxa:
+sessões que usaram o MCP ÷ sessões com trabalho de ferramenta, além das leituras diretas
+(`read`/`grep`/`glob`/`kb`/`trail`). É medida de **escolha**, não de resultado.
 
 O manifesto mostra o custo real medido pelo Ollama:
 
