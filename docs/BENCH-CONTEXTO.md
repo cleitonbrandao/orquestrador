@@ -153,6 +153,33 @@ cada sessão registra seus próprios tokens. Duas ressalvas: as duas chamadas de
 descarte aquela execução) e o título precisa levar o braço e a repetição
 (`AB-A T4 r2`), senão as repetições se misturam.
 
+---
+
+# Rodada 2 — resultado (2026-10-30, 23:35–23:37)
+
+Braço A **sem o MCP** (0 chamadas de contexto nas duas sessões — a correção do
+toggle funcionou), braço B com a regra restrita a leitura. 1 execução por tarefa.
+
+| Tarefa | A (MCP off) | B (regra, leitura) | Δ |
+|---|---:|---:|---:|
+| T4 SSc ausente | 206.046 | 82.956 | **−59,7%** |
+| T5 campos manuais | 140.831 | 58.656 | **−58,4%** |
+| **Total** | **346.877** | **141.612** | **−59,2%** |
+
+Acerto: equivalente. As duas respostas do A citam `SgdSyncService.php`,
+`SgdSyncListCommand.php` e `SscController.php` (abreviados, mas todos existem);
+as do B citam caminho completo **e** `AGENTS.md:24` — rastro da regra injetada
+pelo pacote, que o A não tinha.
+
+**Veredito:** atende ao critério (B ≈ 41% de A) e o efeito aparece nas duas
+tarefas com magnitude parecida, o que reduz a chance de ser ruído de uma sessão.
+A regra fica **ligada, restrita a tarefa de leitura/entendimento**.
+
+**Ressalva:** é 1 execução por tarefa (n=2). Para confiança estatística faltam 2
+repetições de cada — o doc pede 3. A decisão já se sustenta porque a direção é a
+mesma da rodada 1 (T4 −73%, T5 −36%) e a magnitude é grande; repetir serve para
+estreitar o intervalo, não para mudar o veredito.
+
 ## O que este benchmark não mede
 
 - **Tempo do modelo local**: `context_build` gasta 20–60 s de CPU por chamada. É
