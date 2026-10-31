@@ -338,7 +338,7 @@ python scripts/contexto_local.py --pergunta "..." --raiz . --pacote contexto.jso
 | `context_get_rules` / `context_get_decisions` | memória do projeto, filtrada por prioridade/relevância |
 | `context_validate` | revalida um pacote por objeto ou arquivo |
 | `context_metrics` | redução média, tokens e pendências das execuções |
-| `context_search` | busca textual no `kb` (precisa do app indexado) |
+| `context_search` | busca no `kb`; sem índice (ou sem resultado), varredura determinística do repositório |
 
 Tudo somente leitura: nada é escrito no projeto e o conteúdo lido é tratado como dado.
 Cada `context_build` registra uma linha em `~/.local/state/orquestrador/contexto/metrics.jsonl`.

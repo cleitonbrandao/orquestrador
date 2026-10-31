@@ -23,6 +23,7 @@ RAIZ_REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(RAIZ_REPO / "scripts"))
 sys.path.insert(0, str(RAIZ_REPO / "mcp" / "kb"))
 
+import contexto_busca as cb  # noqa: E402
 import contexto_cache as cc  # noqa: E402
 import contexto_local as cl  # noqa: E402
 import contexto_memoria as cm  # noqa: E402
@@ -301,18 +302,29 @@ def context_search(argumentos: dict) -> dict:
     consulta = str(argumentos.get("query") or "").strip()
     if not consulta:
         raise ContextoServerError("'query' é obrigatório")
+    raiz = _raiz(argumentos.get("root"))
+    k = int(argumentos.get("k") or 5)
+    app = str(argumentos.get("app") or raiz.name)
+
+    origem, nota = "kb", ""
+    achados = []
     try:
         import kb  # noqa: PLC0415 - opcional: só existe com o mcp/kb no caminho
-    except ImportError as exc:
-        raise ContextoServerError(f"mcp/kb indisponível: {exc}") from exc
-    app = str(argumentos.get("app") or Path.cwd().name)
-    try:
-        achados = kb.search(app, consulta, int(argumentos.get("k") or 5))
-    except Exception as exc:  # noqa: BLE001 - índice ausente não é erro fatal
-        raise ContextoServerError(
-            f"busca falhou para o app '{app}' ({exc}); rode `orq-kb index {app}`"
-        ) from exc
-    return {"app": app, "count": len(achados), "results": achados}
+        achados = kb.search(app, consulta, k) or []
+        if not achados:
+            origem, nota = "fallback", f"kb sem resultado para '{app}'; busca no repositório"
+    except Exception as exc:  # noqa: BLE001 - índice ausente cai no fallback
+        origem, nota = "fallback", f"kb indisponível ({exc}); busca no repositório"
+
+    if origem == "fallback":
+        try:
+            achados = cb.buscar(raiz, consulta, k)
+        except cb.BuscaError as exc:
+            raise ContextoServerError(str(exc)) from exc
+    resultado = {"app": app, "source": origem, "count": len(achados), "results": achados}
+    if nota:
+        resultado["note"] = nota
+    return resultado
 
 
 FERRAMENTAS = [
@@ -396,13 +408,15 @@ FERRAMENTAS = [
     },
     {
         "name": "context_search",
-        "description": "Busca textual na base local do kb (precisa do app indexado).",
+        "description": "Busca textual: usa o índice do kb quando existir e cai numa varredura "
+                       "determinística do repositório quando não houver índice.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "query": {"type": "string"},
                 "app": {"type": "string"},
                 "k": {"type": "integer"},
+                "root": {"type": "string"},
             },
             "required": ["query"],
         },

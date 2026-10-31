@@ -213,6 +213,37 @@ class BuildTest(Base):
         self.assertIn("fora do pacote", pacote["memory_note"])
 
 
+class BuscaTest(Base):
+    def test_usa_o_kb_quando_responde(self):
+        import types
+        stub = types.SimpleNamespace(search=lambda app, q, k: [{"path": "x", "score": 1}])
+        with mock.patch.dict(sys.modules, {"kb": stub}):
+            r = srv.context_search({"query": "team_id", "root": str(self.root)})
+        self.assertEqual(r["source"], "kb")
+        self.assertEqual(r["count"], 1)
+
+    def test_cai_no_fallback_quando_o_kb_falha(self):
+        import types
+
+        def explode(*_a, **_k):
+            raise RuntimeError("sem índice")
+
+        (self.root / "app" / "busca.py").write_text("team_id aqui\n", encoding="utf-8")
+        with mock.patch.dict(sys.modules, {"kb": types.SimpleNamespace(search=explode)}):
+            r = srv.context_search({"query": "team_id", "root": str(self.root)})
+        self.assertEqual(r["source"], "fallback")
+        self.assertIn("app/busca.py", [a["path"] for a in r["results"]])
+        self.assertIn("kb indisponível", r["note"])
+
+    def test_fallback_quando_o_kb_devolve_vazio(self):
+        import types
+        (self.root / "app" / "vazio.py").write_text("achado raro\n", encoding="utf-8")
+        with mock.patch.dict(sys.modules, {"kb": types.SimpleNamespace(search=lambda *a: [])}):
+            r = srv.context_search({"query": "achado", "root": str(self.root)})
+        self.assertEqual(r["source"], "fallback")
+        self.assertEqual(r["count"], 1)
+
+
 class MetricasTest(Base):
     def test_sem_arquivo(self):
         with mock.patch.dict(os.environ, {"XDG_STATE_HOME": str(self.estado)}):
