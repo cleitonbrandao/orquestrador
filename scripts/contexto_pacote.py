@@ -86,7 +86,7 @@ def extras(texto: str) -> dict:
 
 
 def montar(pergunta, trechos, resumo=None, modelo="", projeto=None, raiz=".",
-           regras=None, decisoes=None) -> dict:
+           regras=None, decisoes=None, memory_note="") -> dict:
     """Pacote §6 a partir das fontes lidas. Sem inventar campo."""
     raiz = Path(raiz or ".")
     texto = (resumo or {}).get("texto") or ""
@@ -160,6 +160,8 @@ def montar(pergunta, trechos, resumo=None, modelo="", projeto=None, raiz=".",
         ]
     if decisoes:
         pacote["decisions"] = [dict(d) for d in decisoes]
+    if memory_note:
+        pacote["memory_note"] = memory_note
     return pacote
 
 

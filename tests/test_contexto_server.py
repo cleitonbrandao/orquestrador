@@ -173,6 +173,45 @@ class BuildTest(Base):
             srv.context_build({"task": "t", "files": ["app/b.py"], "root": str(self.root)})
         self.assertEqual(resumir.call_count, 2)
 
+    def test_perfil_define_orcamento(self):
+        grande = self.root / "app" / "grande.py"
+        grande.write_text("\n".join(f"linha {i} " + "x" * 60 for i in range(400)), encoding="utf-8")
+        with mock.patch.dict(os.environ, {"XDG_STATE_HOME": str(self.estado)}):
+            rapida = srv.context_build({"task": "t", "files": ["app/grande.py"],
+                                        "root": str(self.root), "dry_run": True,
+                                        "profile": "rapida"})
+            completa = srv.context_build({"task": "t", "files": ["app/grande.py"],
+                                          "root": str(self.root), "dry_run": True,
+                                          "profile": "completa"})
+        self.assertLess(rapida["context_metrics"]["original_tokens"],
+                        completa["context_metrics"]["original_tokens"])
+        self.assertTrue(rapida["relevant_files"][0]["truncated"])
+
+    def test_max_total_sobrepoe_o_perfil(self):
+        grande = self.root / "app" / "grande.py"
+        grande.write_text("\n".join(f"linha {i} " + "x" * 60 for i in range(400)), encoding="utf-8")
+        with mock.patch.dict(os.environ, {"XDG_STATE_HOME": str(self.estado)}):
+            pequeno = srv.context_build({"task": "t", "files": ["app/grande.py"],
+                                         "root": str(self.root), "dry_run": True,
+                                         "profile": "completa", "max_total": 2000})
+        self.assertLess(pequeno["context_metrics"]["original_tokens"], 600)
+
+    def test_perfil_invalido_falha(self):
+        with self.assertRaises(srv.ContextoServerError):
+            srv.context_build({"task": "t", "files": ["app/a.py"],
+                               "root": str(self.root), "profile": "turbo"})
+
+    def test_orcamento_de_regras_omite_p1_e_avisa(self):
+        self.memoria(regras=[
+            {"id": "p0", "priority": "P0", "text": "seguranca sempre"},
+            {"id": "p1", "priority": "P1", "text": "leitura " + "regra longa " * 200},
+        ])
+        with mock.patch.dict(os.environ, {"XDG_STATE_HOME": str(self.estado)}):
+            pacote = srv.context_build({"task": "leitura do arquivo", "files": ["app/a.py"],
+                                        "root": str(self.root), "dry_run": True})
+        self.assertEqual(pacote["critical_rules"], ["P0 · seguranca sempre"])
+        self.assertIn("fora do pacote", pacote["memory_note"])
+
 
 class MetricasTest(Base):
     def test_sem_arquivo(self):

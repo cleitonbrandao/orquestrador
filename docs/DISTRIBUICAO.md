@@ -356,6 +356,17 @@ devolve na hora (`cached: true`); editar arquivo ou regra invalida sozinho.
 Medido aqui: 32,4 s no primeiro build, 0 s no segundo. Cache em
 `~/.local/state/orquestrador/contexto/cache/`, podado em 7 dias / 200 entradas.
 
+**Orçamento de regras.** P0 entra sempre; P1+ entra até o teto de ~240 tokens e o
+resto fica acessível por `context_get_rules` (o pacote traz `memory_note` avisando).
+No projeto `orquestrador`, as regras que já vivem no prompt do agente foram
+removidas da memória — repetir no pacote pagava duas vezes pelos mesmos ~330 tokens.
+
+**Perfis de contexto.** `context_build` aceita `profile`: `rapida` (6 KB),
+`leitura` (16 KB, padrão) e `completa` (48 KB). O perfil decide **o que é enviado**;
+a latência nesta máquina varia com a CPU e o carregamento do modelo (2,7 mil tokens
+entre 77 e 87 s com a máquina ocupada; 8,1 mil em 32 s com o modelo quente), então
+use o perfil para limitar o payload, não para prometer tempo.
+
 Para saber se a regra pega, `scripts/contexto_adocao.py` lê o histórico e mostra a taxa:
 sessões que usaram o MCP ÷ sessões com trabalho de ferramenta, além das leituras diretas
 (`read`/`grep`/`glob`/`kb`/`trail`). É medida de **escolha**, não de resultado.

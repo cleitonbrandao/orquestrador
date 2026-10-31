@@ -32,6 +32,7 @@ from pathlib import Path
 NOME_REGRAS = "business_rules.json"
 NOME_DECISOES = "decisions.json"
 LIMITE_DECISOES = 5
+LIMITE_REGRAS_TOKENS = 240
 
 # Termos curtos que casariam com tudo e destruiriam o filtro de relevância.
 _PARADAS = {
@@ -174,6 +175,29 @@ def selecionar_regras(regras: list[dict], alvo: str, arquivos=()) -> list[dict]:
         if any(termo in corpo for termo in termos) or _aplica_por_arquivo(regra, arquivos):
             selecionadas.append(regra)
     return selecionadas
+
+
+def limitar_regras(regras: list[dict], max_tokens: int = LIMITE_REGRAS_TOKENS):
+    """Corta o custo fixo do pacote, sem cortar segurança.
+
+    P0 entra sempre (é o que não pode quebrar); P1+ entra enquanto couber no
+    orçamento. Devolve `(mantidas, omitidas)` — a lista omitida fica acessível
+    por `context_get_rules`, então nada se perde, só deixa de ir junto.
+    """
+    max_tokens = max(1, int(max_tokens))
+    ordenadas = [r for r in regras if r["priority"] == "P0"]
+    ordenadas += [r for r in regras if r["priority"] != "P0"]
+
+    mantidas, omitidas, usado = [], [], 0
+    for regra in ordenadas:
+        custo = max(1, len(f"{regra['priority']} · {regra['text']}") // 4)
+        if regra["priority"] == "P0" or usado + custo <= max_tokens:
+            mantidas.append(regra)
+            usado += custo
+        else:
+            omitidas.append(regra)
+    mantidas.sort(key=lambda r: ordenadas.index(r))
+    return mantidas, omitidas
 
 
 def relevantes(decisoes: list[dict], alvo: str, limite: int = LIMITE_DECISOES) -> list[dict]:

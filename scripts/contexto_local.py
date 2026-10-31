@@ -37,6 +37,7 @@ from contexto_memoria import (
     carregar_decisoes,
     carregar_regras,
     criar as criar_memoria,
+    limitar_regras,
     pasta_memoria,
     selecionar_regras,
 )
@@ -405,14 +406,17 @@ def principal(argv=None) -> int:
         if args.pacote:
             caminho_regras = (args.regras or memoria / NOME_REGRAS).expanduser()
             caminho_decisoes = (args.decisoes or memoria / NOME_DECISOES).expanduser()
-            regras, decisoes, omitidas = [], [], 0
+            regras, decisoes, omitidas, nota = [], [], 0, ""
             alvo = " ".join([pergunta] + [str(t["nome"]) for t in trechos if t["incluido"]])
             arquivos = [str(t["nome"]) for t in trechos if t["incluido"]]
             try:
                 if caminho_regras.is_file():
                     todas = carregar_regras(caminho_regras)
-                    regras = selecionar_regras(todas, alvo, arquivos)
+                    regras, fora = limitar_regras(selecionar_regras(todas, alvo, arquivos))
                     omitidas = len(todas) - len(regras)
+                    if fora:
+                        nota = (f"{len(fora)} regra(s) fora do pacote por orçamento; "
+                                "use context_get_rules para vê-las por inteiro.")
                 if caminho_decisoes.is_file():
                     decisoes = decisoes_relevantes(carregar_decisoes(caminho_decisoes), alvo)
             except MemoriaError as exc:
@@ -424,7 +428,7 @@ def principal(argv=None) -> int:
             texto_fonte = "\n".join(t["texto"] for t in trechos if t["incluido"])
             pacote = validar_pacote(
                 montar_pacote(pergunta, trechos, resumo, args.modelo, raiz=args.raiz,
-                              regras=regras, decisoes=decisoes),
+                              regras=regras, decisoes=decisoes, memory_note=nota),
                 raiz=args.raiz,
                 texto_fonte=texto_fonte,
             )

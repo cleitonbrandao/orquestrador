@@ -35,6 +35,16 @@ MODELO = os.environ.get("ORQ_CONTEXT_MODEL", "qwen3.5-2b-32k")
 HOST = os.environ.get("OLLAMA_HOST_URL", "http://localhost:11434")
 MAX_LINHAS_ARQUIVO = 400
 
+# Orçamento por tipo de tarefa (bytes de fonte). O perfil determina o que é
+# enviado ao modelo local; a latência, nesta máquina, varia com o estado da CPU
+# e o carregamento do modelo (medido: 2,7 mil tokens entre 77 e 87 s com a máquina
+# ocupada, 8,1 mil tokens em 32 s com o modelo quente). Não prometa tempo.
+PERFIS = {
+    "rapida": {"max_total": 6000, "num_predict": 300},
+    "leitura": {"max_total": 16000, "num_predict": 500},
+    "completa": {"max_total": 48000, "num_predict": 700},
+}
+
 
 class ContextoServerError(Exception):
     """Erro de uso; vira isError na resposta, não derruba o servidor."""
@@ -113,12 +123,18 @@ def context_build(argumentos: dict) -> dict:
     caminhos = cl.expandir(absolutos, padroes)
 
     modelo = str(argumentos.get("model") or MODELO)
+    perfil = str(argumentos.get("profile") or "leitura").lower()
+    if perfil not in PERFIS:
+        raise ContextoServerError(
+            f"profile inválido: {perfil} (use {', '.join(PERFIS)})")
+    padrao = PERFIS[perfil]
     orcamento = {
+        "profile": perfil,
         "max_lines": int(argumentos.get("max_lines") or cl.MAX_LINHAS),
         "max_per_file": int(argumentos.get("max_per_file") or cl.MAX_POR_ARQUIVO),
-        "max_total": int(argumentos.get("max_total") or cl.MAX_TOTAL),
+        "max_total": int(argumentos.get("max_total") or padrao["max_total"]),
         "num_ctx": int(argumentos.get("num_ctx") or 32768),
-        "num_predict": int(argumentos.get("num_predict") or 700),
+        "num_predict": int(argumentos.get("num_predict") or padrao["num_predict"]),
         "no_numbers": bool(argumentos.get("no_numbers")),
     }
     pasta_mem = cm.pasta_memoria(raiz)
@@ -174,13 +190,20 @@ def context_build(argumentos: dict) -> dict:
 
     alvo = " ".join([tarefa] + [str(t["nome"]) for t in trechos if t.get("incluido")])
     _, regras_todas, decisoes_todas = _memoria(raiz)
-    selecionadas = cm.selecionar_regras(regras_todas, alvo, [str(t["nome"]) for t in trechos])
+    selecionadas, omitidas = cm.limitar_regras(
+        cm.selecionar_regras(regras_todas, alvo, [str(t["nome"]) for t in trechos]),
+        int(argumentos.get("rule_budget") or cm.LIMITE_REGRAS_TOKENS),
+    )
     decisoes = cm.relevantes(decisoes_todas, alvo, int(argumentos.get("limit_decisions") or 5))
+    nota = ""
+    if omitidas:
+        nota = (f"{len(omitidas)} regra(s) fora do pacote por orçamento; "
+                "use context_get_rules para vê-las por inteiro.")
 
     texto_fonte = "\n".join(t["texto"] for t in trechos if t.get("incluido"))
     pacote = cp.validar(
         cp.montar(tarefa, trechos, resumo, modelo, raiz=raiz,
-                  regras=selecionadas, decisoes=decisoes),
+                  regras=selecionadas, decisoes=decisoes, memory_note=nota),
         raiz=raiz,
         texto_fonte=texto_fonte,
     )
@@ -306,6 +329,9 @@ FERRAMENTAS = [
                 "globs": {"type": "array", "items": {"type": "string"}},
                 "root": {"type": "string", "description": "raiz do repositório (padrão: cwd)"},
                 "model": {"type": "string"},
+                "profile": {"type": "string", "enum": ["rapida", "leitura", "completa"],
+                            "description": "orçamento de contexto: rapida=6 KB, leitura=16 KB "
+                                           "(padrão), completa=48 KB"},
                 "max_total": {"type": "integer"},
                 "num_predict": {"type": "integer"},
                 "dry_run": {"type": "boolean"},
