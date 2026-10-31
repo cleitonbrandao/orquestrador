@@ -301,11 +301,12 @@ limiar = contexto - max(15% do contexto, 16000 se contexto >= 32000)
 |---|---|---|---|
 | 8.192 | 6.963 | 15.000 | compactação sempre degenerada |
 | 16.384 | 13.927 | 15.000 | compactação sempre degenerada |
-| 32.768 | 16.768 | 15.000 | funciona |
+| 32.768 | 16.768 | 15.000 | funciona **se o passo terminar a tempo** |
 | 65.536 | 49.536 | 15.000 | folgado |
 
-Ou seja: **agente local precisa de contexto ≥ 32k**. Com 16k o limiar fica abaixo do `keep`
-e toda compactação resume tudo, deixando a sessão sem texto para a etapa seguinte.
+Ou seja: **agente local precisa de contexto ≥ 32k** para a compactação não degenerar por
+aritmética. Mas isso é só metade da história — ver "Causa real" abaixo: com resposta
+vazia por timeout, 32k e 48k falham do mesmo jeito.
 
 Agravante medido nesta máquina: o estimador de tokens do OpenCode superestima ~33% sobre
 o real (prompt de 10.481 tokens reais disparou um limiar de 13.927).
@@ -340,13 +341,40 @@ Benchmark desta máquina (CPU, prompt real de ~8.100 tokens):
 
 O 4B é mais lento **e** menos preciso que o 2B nesta tarefa.
 
-**Limite conhecido (2026-10-31):** 32k reduz, mas **não elimina** o problema. Sessão
-`ses_e700bf37affe…` (`local-helper` + `gemma4-e2b-32k`) fez compactação com sucesso
-(resumiu ~9 k tokens), recebeu resposta vazia do modelo e morreu no passo seguinte
-com o mesmo erro. O gatilho é o **estimador** (superestima ~33%) cruzar o limiar
-enquanto o conteúdo real ainda cabe no `keep` de 15.000 — aí a compactação resume
-tudo e não sobra texto.
+**Causa real (medida em 2026-10-31, 32k e 48k):** o erro de compactação é **sintoma**,
+não a causa. A sequência é sempre a mesma:
 
-Se acontecer de novo, as saídas são, em ordem: (1) contexto 64k no agente local;
-(2) reduzir a superfície de ferramentas do agente (menos schemas = base menor);
-(3) repetir a delegação — é falha do turno, não do projeto.
+| momento | o que acontece |
+|---|---|
+| t+0 | compactação de início de sessão **conclui** (resume ~5 k tokens da delegação) |
+| t+1–2 min | a mensagem do assistente nasce **vazia** (`tokens: null`, `parts: 0`) |
+| t+~5 min | nova compactação falha com `Nothing to compact yet` e a sessão morre |
+
+O passo do modelo estoura o tempo (~5 min entre a criação da mensagem e o erro), volta
+vazio, e o runner tenta compactar uma conversa que **já foi resumida** — sem texto, o
+erro é fatal.
+
+**Por que estoura:** a base fixa do subagente local é grande. A delegação tinha
+**294 tokens**, mas a compactação processou **8.985** — quase tudo system + schemas de
+ferramentas + instruções dos MCP. Em CPU compartilhada, pré-processar isso passa de
+5 minutos.
+
+**Contexto maior não resolve.** Testado:
+
+| contexto | resultado |
+|---|---|
+| 32k | falha |
+| 48k | **mesma falha, mesma sequência** |
+| 64k | não cabe (419 Mi livres; 95 s só para carregar) |
+
+**Saídas, na ordem que ataca a causa:**
+
+1. **reduzir a base do agente local** — desligar os MCP que ele não usa (`trail`,
+   `contexto`, `kb`, `run_tests`, `decisao`). Menos schema = menos prefill.
+2. aumentar o timeout do request do OpenCode, se houver configuração exposta.
+3. trocar o subagente por `context_build` na leitura: o resumo vem pronto do MCP, sem
+   abrir sessão de agente local.
+
+Até isso ser resolvido, tratar `local-helper`/`exec-local`/`exec-docs` como
+**não confiáveis** para arquivos grandes: delegue trechos curtos e espere falha
+ocasional.
