@@ -119,18 +119,39 @@ economiza em tarefa de leitura e custa em tarefa de edição.
    *use em tarefa de leitura/entendimento; em tarefa de edição, vá direto ao
    arquivo a alterar*.
 
+## Terceira falha: T1–T3 não são repetíveis
+
+Na 2ª rodada o repositório **já contém** o resultado das três:
+
+- `SscConversionTableController` já redireciona `conversao_esocial` para o fluxo;
+- o atalho "Tabelas de conversão" já está escondido (há teste cobrindo);
+- `app/resources/js/components/esocial/flow-graph.jsx` já existe.
+
+Pedir de novo mede "descobrir que já está feito", não "implementar". Isso também
+contamina a rodada 1: o +60% do T2 pode ser o custo de procurar e achar o código
+pronto.
+
+**Regra nova:** tarefa de código só é repetível com o repositório no **mesmo
+commit** nos dois braços (`git checkout <sha>` + `git clean -fd` antes de cada
+execução). Sem reset, meça só tarefa de leitura.
+
 ## Rodada 2 (para fechar)
 
-Repetir com o braço A **sem o MCP**, e ao menos **3 repetições** de T4/T5 — são
-as tarefas que mostraram o efeito e as únicas em que a diferença não pode ser
-explicada por tamanho de arquivo.
+Dataset reduzido a **T4 e T5** — perguntas de regra de negócio, somente leitura,
+repetíveis em qualquer commit. **3 repetições de cada**, braço A sem o MCP:
 
 ```bash
-python3 scripts/contexto_ab.py --off   # agora remove regra E servidor
-# reiniciar, rodar AB-A T1..T5
-python3 scripts/contexto_ab.py --on    # devolve os dois
-# reiniciar, rodar AB-B T1..T5
+python3 scripts/contexto_ab.py --off   # remove regra E servidor
+# reiniciar → AB-A T4 r1, AB-A T4 r2, AB-A T4 r3, AB-A T5 r1..r3
+python3 scripts/contexto_ab.py --on
+# reiniciar → AB-B T4 r1..r3, AB-B T5 r1..r3
 ```
+
+T4 e T5 podem rodar **em paralelo, em chats diferentes**: não alteram arquivo e
+cada sessão registra seus próprios tokens. Duas ressalvas: as duas chamadas de
+`context_build` disputam o mesmo modelo local na CPU (se uma estourar timeout,
+descarte aquela execução) e o título precisa levar o braço e a repetição
+(`AB-A T4 r2`), senão as repetições se misturam.
 
 ## O que este benchmark não mede
 
