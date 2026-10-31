@@ -49,9 +49,9 @@ Uma execução só conta se:
 
 1. foi em **sessão nova** (histórico zerado);
 2. o mesmo modelo pago em todo o braço;
-3. terminou com `run_tests` executado — sem isso não há veredito;
-4. o diff foi conferido (nenhum arquivo fora do escopo);
-5. bateu o mesmo prompt dos dois lados.
+3. **tarefa de código** (T2, T3): terminou com `run_tests` executado e diff conferido;
+   **tarefa de leitura** (T1, T4, T5): a resposta cita `arquivo:linha` que existe;
+4. bateu o mesmo prompt dos dois lados.
 
 Descarte a execução (e repita) se o provider falhou, se a sessão foi interrompida
 por você ou se o modelo foi trocado no meio.
