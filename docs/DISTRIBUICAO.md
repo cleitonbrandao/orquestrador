@@ -349,6 +349,13 @@ arquivos para entender uma área, chamar `context_build`; usar a memória por
 pendência, nunca como fato. A regra vale quando o contexto passa de ~2 mil tokens ou envolve 3+ arquivos; um
 arquivo só com trecho pontual continua `local-helper`/`local-mini`.
 
+**Cache (Fase 7).** Cada build custa 20–60 s de CPU. O pacote é cacheado por
+conteúdo: tarefa + modelo + orçamento + caminho/tamanho/mtime de cada arquivo +
+estado dos arquivos de memória. Repetir a mesma pergunta sobre os mesmos arquivos
+devolve na hora (`cached: true`); editar arquivo ou regra invalida sozinho.
+Medido aqui: 32,4 s no primeiro build, 0 s no segundo. Cache em
+`~/.local/state/orquestrador/contexto/cache/`, podado em 7 dias / 200 entradas.
+
 Para saber se a regra pega, `scripts/contexto_adocao.py` lê o histórico e mostra a taxa:
 sessões que usaram o MCP ÷ sessões com trabalho de ferramenta, além das leituras diretas
 (`read`/`grep`/`glob`/`kb`/`trail`). É medida de **escolha**, não de resultado.

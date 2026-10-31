@@ -143,3 +143,7 @@ devolve, com uma chamada de rede a mais.
 regras verbatim no pacote, decisões filtradas por relevância e com os arquivos
 conferidos no disco). Falta antes do MCP: preencher a memória de um projeto real e
 medir se o pacote melhora a qualidade da execução seguinte.
+
+## 8. Fase 7 — otimização (parcial)
+
+Cache de pacote por conteúdo em `scripts/contexto_cache.py`: repetir a mesma tarefa sobre os mesmos arquivos devolve na hora; arquivo ou regra editados invalidam. Medido: 32,4 s → 0 s.

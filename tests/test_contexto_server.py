@@ -153,6 +153,26 @@ class BuildTest(Base):
         with self.assertRaises(srv.ContextoServerError):
             srv.context_build({"files": ["app/a.py"], "root": str(self.root)})
 
+    def test_segundo_build_igual_usa_cache(self):
+        falso = {"texto": "alfa", "entrada": 10, "saida": 5, "duracao": 1.0}
+        args = {"task": "o que tem?", "files": ["app/a.py"], "root": str(self.root)}
+        with mock.patch.dict(os.environ, {"XDG_STATE_HOME": str(self.estado)}), \
+                mock.patch.object(srv.cl, "resumir", return_value=falso) as resumir:
+            primeiro = srv.context_build(dict(args))
+            segundo = srv.context_build(dict(args))
+        self.assertEqual(resumir.call_count, 1, "o segundo build não devia chamar o modelo")
+        self.assertFalse(primeiro.get("cached", False))
+        self.assertTrue(segundo["cached"])
+
+    def test_build_muda_de_arquivo_nao_usa_cache(self):
+        falso = {"texto": "ok", "entrada": 10, "saida": 5, "duracao": 1.0}
+        (self.root / "app" / "b.py").write_text("outro\n", encoding="utf-8")
+        with mock.patch.dict(os.environ, {"XDG_STATE_HOME": str(self.estado)}), \
+                mock.patch.object(srv.cl, "resumir", return_value=falso) as resumir:
+            srv.context_build({"task": "t", "files": ["app/a.py"], "root": str(self.root)})
+            srv.context_build({"task": "t", "files": ["app/b.py"], "root": str(self.root)})
+        self.assertEqual(resumir.call_count, 2)
+
 
 class MetricasTest(Base):
     def test_sem_arquivo(self):

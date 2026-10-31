@@ -23,6 +23,7 @@ RAIZ_REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(RAIZ_REPO / "scripts"))
 sys.path.insert(0, str(RAIZ_REPO / "mcp" / "kb"))
 
+import contexto_cache as cc  # noqa: E402
 import contexto_local as cl  # noqa: E402
 import contexto_memoria as cm  # noqa: E402
 import contexto_pacote as cp  # noqa: E402
@@ -110,13 +111,43 @@ def context_build(argumentos: dict) -> dict:
     absolutos = [a if Path(a).is_absolute() else str(raiz / a) for a in arquivos]
     padroes = [g if Path(g).is_absolute() else str(raiz / g) for g in globs]
     caminhos = cl.expandir(absolutos, padroes)
+
+    modelo = str(argumentos.get("model") or MODELO)
+    orcamento = {
+        "max_lines": int(argumentos.get("max_lines") or cl.MAX_LINHAS),
+        "max_per_file": int(argumentos.get("max_per_file") or cl.MAX_POR_ARQUIVO),
+        "max_total": int(argumentos.get("max_total") or cl.MAX_TOTAL),
+        "num_ctx": int(argumentos.get("num_ctx") or 32768),
+        "num_predict": int(argumentos.get("num_predict") or 700),
+        "no_numbers": bool(argumentos.get("no_numbers")),
+    }
+    pasta_mem = cm.pasta_memoria(raiz)
+    arquivos_memoria = [p for p in (pasta_mem / cm.NOME_REGRAS, pasta_mem / cm.NOME_DECISOES)
+                        if p.is_file()]
+    chave = cc.chave(tarefa, modelo, caminhos, orcamento, arquivos_memoria)
+    seco = not argumentos.get("dry_run")
+
+    if seco:
+        cacheado = cc.obter(chave)
+        if cacheado is not None:
+            cacheado["cached"] = True
+            _metricas_registrar({
+                "quando": datetime.now().isoformat(timespec="seconds"),
+                "root": str(raiz), "task": tarefa,
+                "model": cacheado.get("context_metrics", {}).get("model", modelo),
+                "original_tokens": 0, "prompt_tokens": 0, "compressed_tokens": 0,
+                "reduction_percentage": 0, "pending": cacheado.get("validation", {}).get("pending", 0),
+                "cached": True, "seconds": 0,
+            })
+            return cacheado
+
     try:
         trechos = cl.montar_trechos(
             caminhos,
             argumentos.get("stdin"),
-            int(argumentos.get("max_lines") or cl.MAX_LINHAS),
-            int(argumentos.get("max_per_file") or cl.MAX_POR_ARQUIVO),
-            int(argumentos.get("max_total") or cl.MAX_TOTAL),
+            orcamento["max_lines"],
+            orcamento["max_per_file"],
+            orcamento["max_total"],
         )
     except cl.ContextoError as exc:
         raise ContextoServerError(str(exc)) from exc
@@ -128,19 +159,15 @@ def context_build(argumentos: dict) -> dict:
                 trecho["nome"] = str(Path(nome).resolve().relative_to(raiz))
             except (ValueError, OSError):
                 pass
-    prompt = cl.montar_prompt(tarefa, trechos, numerar=not argumentos.get("no_numbers"))
-    seco = not argumentos.get("dry_run")
+    prompt = cl.montar_prompt(tarefa, trechos, numerar=not orcamento["no_numbers"])
 
     resumo = None
     if seco:
         try:
             resumo = cl.resumir(
-                HOST,
-                str(argumentos.get("model") or MODELO),
-                prompt,
+                HOST, modelo, prompt,
                 int(argumentos.get("timeout") or 900),
-                int(argumentos.get("num_ctx") or 32768),
-                int(argumentos.get("num_predict") or 700),
+                orcamento["num_ctx"], orcamento["num_predict"],
             )
         except cl.ContextoError as exc:
             raise ContextoServerError(str(exc)) from exc
@@ -152,12 +179,13 @@ def context_build(argumentos: dict) -> dict:
 
     texto_fonte = "\n".join(t["texto"] for t in trechos if t.get("incluido"))
     pacote = cp.validar(
-        cp.montar(tarefa, trechos, resumo, str(argumentos.get("model") or MODELO),
-                  raiz=raiz, regras=selecionadas, decisoes=decisoes),
+        cp.montar(tarefa, trechos, resumo, modelo, raiz=raiz,
+                  regras=selecionadas, decisoes=decisoes),
         raiz=raiz,
         texto_fonte=texto_fonte,
     )
     if seco:
+        cc.guardar(chave, pacote)
         _metricas_registrar({
             "quando": datetime.now().isoformat(timespec="seconds"),
             "root": str(raiz),
@@ -168,6 +196,8 @@ def context_build(argumentos: dict) -> dict:
             "compressed_tokens": pacote["context_metrics"]["compressed_tokens"],
             "reduction_percentage": pacote["context_metrics"]["reduction_percentage"],
             "pending": pacote["validation"]["pending"],
+            "cached": False,
+            "seconds": pacote["context_metrics"]["seconds"],
         })
     else:
         pacote["dry_run"] = True
@@ -237,6 +267,9 @@ def context_metrics(argumentos: dict) -> dict:
         "total_prompt_tokens": sum(r.get("prompt_tokens") or 0 for r in registros),
         "total_compressed_tokens": sum(r.get("compressed_tokens") or 0 for r in registros),
         "pending": sum(r.get("pending") or 0 for r in registros),
+        "cache_hits": sum(1 for r in registros if r.get("cached")),
+        "seconds_total": round(sum(r.get("seconds") or 0 for r in registros), 1),
+        "cache": cc.estatisticas(),
         "recent": registros[-5:],
     }
 
