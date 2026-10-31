@@ -64,6 +64,15 @@ def regra_canonica() -> str:
     return extrair(dados["agents"]["orquestrador"]["system"])
 
 
+def servidor_canonico() -> dict:
+    """Config MCP canônica do servidor `contexto` (do repositório)."""
+    dados = json.loads(CONFIG_REPO.read_text(encoding="utf-8"))
+    try:
+        return dict(dados["mcp"]["servers"]["contexto"])
+    except KeyError as exc:
+        raise ValueError("servidor 'contexto' ausente no opencode.json do repositório") from exc
+
+
 def _ler(config: Path) -> dict:
     return json.loads(config.read_text(encoding="utf-8"))
 
@@ -95,27 +104,33 @@ def principal(argv=None) -> int:
     dados = _ler(config)
     sistema = dados["agents"]["orquestrador"]["system"]
     ligada = bool(extrair(sistema))
+    servidores = (dados.get("mcp") or {}).get("servers") or {}
+    tem_servidor = "contexto" in servidores
 
     if args.status:
         print(f"  config:  {config}")
         print(f"  regra:   {'LIGADA (braço B)' if ligada else 'DESLIGADA (braço A)'}")
+        print(f"  MCP:     {'presente' if tem_servidor else 'ausente (braço A limpo)'}")
         return 0
 
-    if args.on and ligada:
-        print("  regra já está ligada")
+    if args.on and ligada and tem_servidor:
+        print("  já está ligado (regra + MCP)")
         return 0
-    if args.off and not ligada:
-        print("  regra já está desligada")
+    if args.off and not ligada and not tem_servidor:
+        print("  já está desligado (regra + MCP)")
         return 0
 
     if args.off:
         dados["agents"]["orquestrador"]["system"] = desligar(sistema)
+        servidores.pop("contexto", None)
         _gravar(config, dados)
-        print("  regra CONTEXTO desligada (braço A)")
+        print("  regra CONTEXTO desligada e MCP 'contexto' removido (braço A)")
     else:
         dados["agents"]["orquestrador"]["system"] = ligar(sistema, regra_canonica())
+        if not tem_servidor:
+            dados.setdefault("mcp", {}).setdefault("servers", {})["contexto"] = servidor_canonico()
         _gravar(config, dados)
-        print("  regra CONTEXTO ligada (braço B)")
+        print("  regra CONTEXTO ligada e MCP 'contexto' garantido (braço B)")
     print("  reinicie o OpenCode para a config valer")
     return 0
 

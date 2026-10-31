@@ -87,6 +87,7 @@ class ConfigTest(unittest.TestCase):
         # critério de adoção explícito: sem ele a regra é só prosa
         self.assertIn("~2 mil tokens", sistema)
         self.assertIn("3+ arquivos", sistema)
+        self.assertIn("tarefa de edição", sistema)
 
     def test_integrar_confere_o_diff(self):
         self.assertIn("nenhum arquivo fora das listas", self.agentes["orquestrador"]["system"])

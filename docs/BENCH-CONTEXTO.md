@@ -82,6 +82,56 @@ Registre por execução: tokens pagos, leituras diretas, `pending` do pacote
 
 Mínimo de **5 execuções por braço** para a média valer. Com menos, é anedota.
 
+---
+
+# Rodada 1 — resultado (2026-10-30)
+
+5 tarefas, 1 execução cada, braço B rodado antes do A.
+
+| Tarefa | A (sem regra) | B (com regra) | Δ |
+|---|---:|---:|---:|
+| T1 PhaseTrail/grafo | 245.887 | 289.481 | **+17,7%** |
+| T2 redirecionar rota | 217.586 | 348.032 | **+60,0%** |
+| T3 ocultar link | 383.494 | 324.920 | −15,3% |
+| T4 SSc ausente | 217.510 | 58.313 | **−73,2%** |
+| T5 campos manuais | 58.438 | 37.555 | −35,7% |
+| **Total** | **1.122.915** | **1.058.301** | **−5,8%** |
+
+Por tipo de tarefa:
+
+| Tipo | A | B | Δ |
+|---|---:|---:|---:|
+| Leitura/entendimento (T1, T4, T5) | 521.835 | 385.349 | **−26,2%** |
+| Edição de código (T2, T3) | 601.080 | 672.952 | **+12,0%** |
+
+**Veredito:** o agregado (−5,8%) está dentro do ruído de 5 amostras e **não**
+atende ao critério de aceite (B ≤ 80%). O sinal útil está na separação: o pacote
+economiza em tarefa de leitura e custa em tarefa de edição.
+
+## Duas falhas de método na rodada 1
+
+1. **O braço A não estava limpo.** Desligar só a regra não remove a ferramenta: o
+   MCP seguiu disponível e o modelo chamou `context_build` em 3 das 5 sessões do
+   braço A (2, 5 e 1 chamadas). O "A" virou um "B com menos insistência".
+   **Correção:** `contexto_ab.py --off` agora remove também `mcp.servers.contexto`.
+2. **O sinal ficou colado na regra errada.** As tarefas de edição pagaram o
+   `context_build` e ainda leram o arquivo para editar. A regra passou a dizer:
+   *use em tarefa de leitura/entendimento; em tarefa de edição, vá direto ao
+   arquivo a alterar*.
+
+## Rodada 2 (para fechar)
+
+Repetir com o braço A **sem o MCP**, e ao menos **3 repetições** de T4/T5 — são
+as tarefas que mostraram o efeito e as únicas em que a diferença não pode ser
+explicada por tamanho de arquivo.
+
+```bash
+python3 scripts/contexto_ab.py --off   # agora remove regra E servidor
+# reiniciar, rodar AB-A T1..T5
+python3 scripts/contexto_ab.py --on    # devolve os dois
+# reiniciar, rodar AB-B T1..T5
+```
+
 ## O que este benchmark não mede
 
 - **Tempo do modelo local**: `context_build` gasta 20–60 s de CPU por chamada. É

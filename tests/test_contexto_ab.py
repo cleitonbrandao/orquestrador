@@ -49,14 +49,19 @@ class CliTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.base = Path(self.tmp.name)
         self.config = self.base / "opencode.json"
-        self.config.write_text(json.dumps({"agents": {"orquestrador": {"system": SISTEMA}}}),
-                               encoding="utf-8")
+        self.config.write_text(json.dumps({
+            "agents": {"orquestrador": {"system": SISTEMA}},
+            "mcp": {"servers": {"contexto": {"type": "local", "command": ["orq-contexto"]}}},
+        }), encoding="utf-8")
 
     def tearDown(self):
         self.tmp.cleanup()
 
+    def dados(self):
+        return json.loads(self.config.read_text(encoding="utf-8"))
+
     def sistema(self):
-        return json.loads(self.config.read_text(encoding="utf-8"))["agents"]["orquestrador"]["system"]
+        return self.dados()["agents"]["orquestrador"]["system"]
 
     def test_status_mostra_ligada(self):
         import io
@@ -69,13 +74,24 @@ class CliTest(unittest.TestCase):
 
     def test_off_faz_backup_e_liga_de_volta(self):
         with mock.patch.object(ab, "regra_canonica", return_value=REGRA), \
+                mock.patch.object(ab, "servidor_canonico",
+                                  return_value={"type": "local", "command": ["orq-contexto"]}), \
                 mock.patch("builtins.print"):
             self.assertEqual(ab.principal(["--off", "--config", str(self.config)]), 0)
             self.assertNotIn("CONTEXTO (regra de custo)", self.sistema())
+            self.assertNotIn("contexto", self.dados()["mcp"]["servers"])
             self.assertEqual(ab.principal(["--on", "--config", str(self.config)]), 0)
         self.assertEqual(self.sistema(), SISTEMA)
+        self.assertEqual(self.dados()["mcp"]["servers"]["contexto"]["command"], ["orq-contexto"])
         backups = list(self.base.glob("opencode.json.bak.*"))
         self.assertEqual(len(backups), 2)
+
+    def test_off_limpa_o_mcp_para_o_braco_a_ser_honesto(self):
+        """Só desligar a regra não impede o modelo de chamar a ferramenta."""
+        with mock.patch.object(ab, "regra_canonica", return_value=REGRA), \
+                mock.patch("builtins.print"):
+            ab.principal(["--off", "--config", str(self.config)])
+        self.assertEqual(self.dados()["mcp"]["servers"], {})
 
     def test_recusa_config_do_repositorio(self):
         import io
