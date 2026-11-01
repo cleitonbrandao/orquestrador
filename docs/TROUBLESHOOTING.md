@@ -361,20 +361,26 @@ ferramentas + instruções dos MCP. Em CPU compartilhada, pré-processar isso pa
 
 **Contexto maior não resolve.** Testado:
 
-| contexto | resultado |
+| tentativa | resultado |
 |---|---|
 | 32k | falha |
 | 48k | **mesma falha, mesma sequência** |
 | 64k | não cabe (419 Mi livres; 95 s só para carregar) |
+| remover **todos** os MCP (config alternativa) | base **idêntica**: 5.165 tokens |
+| `provider.ollama.timeout: 900000` (15 min) | **sem efeito**: falha exatamente 5 min após criar a mensagem |
 
-**Saídas, na ordem que ataca a causa:**
+Conclusão dos testes: o passo do modelo é abortado por um limite interno de **5 minutos**
+que não responde a `provider.timeout`, e a base do subagente não vem dos MCP (removê-los
+não mudou nada). Não há ajuste de contexto nem de permissão que conserte isso.
 
-1. **reduzir a base do agente local** — desligar os MCP que ele não usa (`trail`,
-   `contexto`, `kb`, `run_tests`, `decisao`). Menos schema = menos prefill.
-2. aumentar o timeout do request do OpenCode, se houver configuração exposta.
-3. trocar o subagente por `context_build` na leitura: o resumo vem pronto do MCP, sem
-   abrir sessão de agente local.
+**O que fazer:** não depender de subagente local para leitura longa. As saídas que
+funcionam:
 
-Até isso ser resolvido, tratar `local-helper`/`exec-local`/`exec-docs` como
-**não confiáveis** para arquivos grandes: delegue trechos curtos e espere falha
-ocasional.
+1. `context_get_file` para um trecho e `context_build` para entender uma área — são
+   chamadas MCP de um único request, sem subagente, e concluem em 30–90 s;
+2. `local-helper` só para trechos curtos (aí o passo cabe no limite);
+3. modelo pago quando a leitura for grande e a tarefa crítica.
+
+Até isso ser resolvido no OpenCode (ou a máquina ganhar GPU), tratar
+`local-helper`/`exec-local`/`exec-docs` como **não confiáveis** para arquivos grandes:
+delegue trechos curtos e use o MCP de contexto no lugar da delegação quando ela falhar.
